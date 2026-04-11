@@ -20,12 +20,12 @@ Inspired by [OpenClaw](https://openclaw.ai/) — the self-hosted personal AI mov
 
 ## Prizes — $3,000 USDC Total
 
-| Place | Prize |
-|-------|-------|
-| 🥇 1st | $1,000 USDC |
-| 🥈 2nd | $750 USDC |
-| 🥉 3rd | $450 USDC |
-| 4th | $200 USDC |
+| Place    | Prize          |
+| -------- | -------------- |
+| 🥇 1st   | $1,000 USDC    |
+| 🥈 2nd   | $750 USDC      |
+| 🥉 3rd   | $450 USDC      |
+| 4th      | $200 USDC      |
 | 5th–10th | $100 USDC each |
 
 ---
@@ -108,11 +108,12 @@ Nosana provides a hosted **Qwen3.5-27B-AWQ-4bit** endpoint for challenge partici
 
 ```env
 OPENAI_API_KEY=nosana
-OPENAI_API_URL=https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1
+OPENAI_BASE_URL=https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1
 MODEL_NAME=Qwen3.5-27B-AWQ-4bit
 ```
 
 **Model Details:**
+
 - **Model ID:** `Qwen3.5-27B-AWQ-4bit`
 - **Max Context Length:** 60,000 tokens
 - **Provider:** Nosana decentralized inference
@@ -127,7 +128,7 @@ ollama serve
 
 ```env
 OPENAI_API_KEY=ollama
-OPENAI_API_URL=http://127.0.0.1:11434/v1
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
 MODEL_NAME=qwen3.5:27b
 ```
 
@@ -145,6 +146,7 @@ OPENAI_EMBEDDING_DIMENSIONS=1024
 ```
 
 **Model Details:**
+
 - **Model ID:** `Qwen3-Embedding-0.6B`
 - **Dimensions:** 1024
 - **Provider:** Nosana decentralized inference
@@ -171,26 +173,32 @@ Edit `characters/agent.character.json` to define your agent's personality, knowl
 
 Extend your agent by adding plugins to `package.json` and your character file:
 
-| Plugin | Use Case |
-|--------|----------|
-| `@elizaos/plugin-bootstrap` | Required base plugin |
-| `@elizaos/plugin-openai` | OpenAI-compatible LLM (required for Nosana endpoint) |
-| `@elizaos/plugin-web-search` | Web search capability |
-| `@elizaos/plugin-telegram` | Telegram bot client |
-| `@elizaos/plugin-discord` | Discord bot client |
-| `@elizaos/plugin-twitter` | Twitter/X integration |
-| `@elizaos/plugin-browser` | Browser/web automation |
-| `@elizaos/plugin-sql` | Database access |
+| Plugin                       | Use Case                                             |
+| ---------------------------- | ---------------------------------------------------- |
+| `@elizaos/plugin-bootstrap`  | Required base plugin                                 |
+| `@elizaos/plugin-openai`     | OpenAI-compatible LLM (required for Nosana endpoint) |
+| `@elizaos/plugin-web-search` | Web search capability                                |
+| `@elizaos/plugin-telegram`   | Telegram bot client                                  |
+| `@elizaos/plugin-discord`    | Discord bot client                                   |
+| `@elizaos/plugin-twitter`    | Twitter/X integration                                |
+| `@elizaos/plugin-browser`    | Browser/web automation                               |
+| `@elizaos/plugin-sql`        | Database access                                      |
 
 Install a plugin:
+
 ```bash
 pnpm add @elizaos/plugin-web-search
 ```
 
 Add it to your character file:
+
 ```json
 {
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai", "@elizaos/plugin-web-search"]
+  "plugins": [
+    "@elizaos/plugin-bootstrap",
+    "@elizaos/plugin-openai",
+    "@elizaos/plugin-web-search"
+  ]
 }
 ```
 
@@ -213,6 +221,7 @@ SQLite is configured by default — sufficient for development and small-scale a
 > **Important:** For this challenge, you must deploy your agent to Nosana's decentralized infrastructure. Do **not** use the standard `elizaos deploy` command — that deploys to centralized cloud providers. This challenge is about embracing decentralized compute.
 
 **Why Nosana?**
+
 - **Decentralized** — Your agent runs on a distributed network of GPU providers, not AWS/GCP/Azure
 - **Cost-effective** — Use your free builders credits (no credit card required)
 - **Permissionless** — No vendor lock-in, full control over your infrastructure
@@ -221,6 +230,7 @@ SQLite is configured by default — sufficient for development and small-scale a
 ### Prerequisites
 
 Before deploying, ensure you have:
+
 - [Docker](https://docs.docker.com/get-docker/) installed and running
 - A [Docker Hub](https://hub.docker.com/) account (free)
 - Your [Nosana builders credits](https://nosana.com/builders-credits) claimed
@@ -230,11 +240,19 @@ Before deploying, ensure you have:
 Your agent needs to be containerized and available on a public registry (Docker Hub) so Nosana nodes can pull and run it.
 
 ```bash
+# Run all commands from the repo root (agent-challenge/)
+
 # Build your Docker image
-docker build -t yourusername/nosana-eliza-agent:latest .
+docker build -t pwilson99/nosana-eliza-agent:latest .
 
 # Test it locally first (recommended)
-docker run -p 3000:3000 --env-file .env yourusername/nosana-eliza-agent:latest
+docker run -p 3000:3000 \
+  -e OPENAI_API_KEY=nosana \
+  -e OPENAI_BASE_URL=https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1 \
+  -e OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8 \
+  -e OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8 \
+  -e MODEL_NAME=Qwen3.5-9B-FP8 \
+  pwilson99/nosana-eliza-agent:latest
 
 # Visit http://localhost:3000 to verify it works
 
@@ -242,33 +260,34 @@ docker run -p 3000:3000 --env-file .env yourusername/nosana-eliza-agent:latest
 docker login
 
 # Push to Docker Hub (make it public)
-docker push yourusername/nosana-eliza-agent:latest
+docker push pwilson99/nosana-eliza-agent:latest
 ```
 
-> **Tip:** Replace `yourusername` with your actual Docker Hub username. Make sure your repository is **public** so Nosana nodes can pull it.
+> **Tip:** Make sure your Docker Hub repository is **public** so Nosana nodes can pull it.
 
 ### Step 2: Configure Your Job Definition
 
-Edit `nos_job_def/nosana_eliza_job_definition.json` and update the Docker image reference:
+The job definition at `nos_job_def/nosana_eliza_job_definition.json` is already configured with the correct Nosana inference endpoint. You only need to update the image name:
 
 ```json
 {
   "version": "0.1",
-  "type": "container",
-  "meta": {
-    "trigger": "cli"
-  },
   "ops": [
     {
+      "id": "agent",
       "type": "container/run",
-      "id": "eliza-agent",
       "args": {
-        "image": "yourusername/nosana-eliza-agent:latest",  // <- Change this
-        "ports": ["3000:3000"],
+        "image": "yourusername/nosana-eliza-agent:latest",
+        "expose": 3000,
         "env": {
           "OPENAI_API_KEY": "nosana",
-          "OPENAI_API_URL": "https://6vq2bcqphcansrs9b88ztxfs88oqy7etah2ugudytv2x.node.k8s.prd.nos.ci/v1",
-          "MODEL_NAME": "Qwen3.5-27B-AWQ-4bit"
+          "OPENAI_BASE_URL": "https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_SMALL_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_LARGE_MODEL": "Qwen3.5-9B-FP8",
+          "MODEL_NAME": "Qwen3.5-9B-FP8",
+          "SERVER_PORT": "3000",
+          "NODE_ENV": "production",
+          "ELIZAOS_TELEMETRY_DISABLED": "true"
         }
       }
     }
@@ -321,6 +340,7 @@ nosana job logs <job-id>
 ```
 
 **CLI Flags Explained:**
+
 - `--file` — Path to your job definition JSON
 - `--market` — Which GPU market to use (nvidia-3090, nvidia-rtx-4090, etc.)
 - `--timeout` — Maximum job runtime in minutes
@@ -337,21 +357,25 @@ Once your job is running on Nosana:
 ### Troubleshooting
 
 **Agent not starting?**
+
 - Check that your Docker image is public on Docker Hub
 - Verify your job definition JSON is valid
 - Ensure environment variables are correctly set
 - Check Nosana dashboard logs for error messages
 
 **Slow response times?**
+
 - Consider using a higher-tier GPU market (nvidia-rtx-4090)
 - Optimize your ElizaOS configuration
 - Check if the Nosana inference endpoint is reachable
 
 **Out of credits?**
+
 - Visit [nosana.com/builders-credits](https://nosana.com/builders-credits) to check your balance
 - Credits are airdropped twice daily — be patient if you just signed up
 
 **Need help?**
+
 - Join the [Nosana Discord](https://nosana.com/discord) for support
 - Check the [Nosana documentation](https://learn.nosana.io)
 - Review the [Nosana CLI docs](https://github.com/nosana-ci/nosana-cli)
@@ -361,6 +385,7 @@ Once your job is running on Nosana:
 ## What You'll Build
 
 Your submission should include:
+
 - **A working AI agent** built with ElizaOS
 - **A frontend interface** to interact with your agent (web UI, chat interface, dashboard, etc.)
 - **Deployment on Nosana** — your agent must run on Nosana's decentralized infrastructure
@@ -368,6 +393,7 @@ Your submission should include:
 **The deeper your Nosana integration, the better your score.** We're looking for projects that fully embrace decentralized infrastructure — not just a minimal deployment, but thoughtful integration into your architecture.
 
 ### Examples of Deep Integration (Better Scores):
+
 - Using Nosana for both training and inference
 - Multi-node deployments across Nosana's network
 - Custom deployment pipelines using Nosana CLI
@@ -405,15 +431,16 @@ Submit your project via the official submission page: **[superteam.fun/earn/list
 
 ## Judging Criteria
 
-| Criterion | Weight |
-|-----------|--------|
-| Technical implementation | 25% |
-| Nosana integration depth | 25% |
-| Usefulness & UX | 25% |
-| Creativity & originality | 15% |
-| Documentation | 10% |
+| Criterion                | Weight |
+| ------------------------ | ------ |
+| Technical implementation | 25%    |
+| Nosana integration depth | 25%    |
+| Usefulness & UX          | 25%    |
+| Creativity & originality | 15%    |
+| Documentation            | 10%    |
 
 **Judging Details:**
+
 - **Technical implementation (25%)** — Code quality, architecture, and ElizaOS best practices
 - **Nosana integration depth (25%)** — How deeply Nosana is integrated into your deployment and infrastructure
 - **Usefulness & UX (25%)** — Real-world applicability, frontend quality, and user experience
@@ -443,18 +470,21 @@ Submit your project via the official submission page: **[superteam.fun/earn/list
 ## Resources
 
 ### ElizaOS
+
 - [ElizaOS Documentation](https://elizaos.github.io/eliza/docs) — Full framework docs
 - [ElizaOS Plugin Directory](https://elizaos.github.io/eliza/docs/core/plugins) — Browse available plugins
 - [ElizaOS GitHub](https://github.com/elizaos/eliza) — Source code and examples
 - [ElizaOS Discord](https://discord.gg/elizaos) — Community support
 
 ### Nosana
+
 - [Nosana Documentation](https://docs.nosana.io) — Platform guide
 - [Nosana Dashboard](https://dashboard.nosana.com) — Deploy and manage jobs
 - [Nosana CLI](https://github.com/nosana-ci/nosana-cli) — Command-line deployment
 - [Nosana Discord](https://nosana.com/discord) — Support and endpoint URL
 
 ### Qwen3.5
+
 - [Qwen3.5-27B on HuggingFace](https://huggingface.co/Qwen/Qwen3.5-27B)
 
 ---

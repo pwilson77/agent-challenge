@@ -1,0 +1,23 @@
+{
+  "version": "0.1",
+  "ops": [
+    {
+      "id": "agent",
+      "type": "container/run",
+      "args": {
+        "image": "pwilson99/nosana-eliza-agent:latest",
+        "expose": 3000,
+        "env": {
+          "OPENAI_API_KEY": "nosana",
+          "OPENAI_BASE_URL": "https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1",
+          "OPENAI_SMALL_MODEL": "Qwen3.5-9B-FP8",
+          "OPENAI_LARGE_MODEL": "Qwen3.5-9B-FP8",
+          "MODEL_NAME": "Qwen3.5-9B-FP8",
+          "SERVER_PORT": "3000",
+          "NODE_ENV": "production",
+          "ELIZAOS_TELEMETRY_DISABLED": "true"
+        }
+      }
+    }
+  ]
+}

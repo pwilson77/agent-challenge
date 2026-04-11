@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Market {
+  id          String       @id
+  question    String
+  probability Float
+  volume      Float
+  liquidity   Float        @default(0)
+  endDate     DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  signals     Signal[]
+  simulations Simulation[]
+}
+
+model Signal {
+  id         String   @id @default(cuid())
+  marketId   String
+  market     Market   @relation(fields: [marketId], references: [id])
+  runId      String?
+  run        StrategyRun? @relation(fields: [runId], references: [id])
+  signalType String
+  confidence Float
+  reasoning  String
+  action     String
+  createdAt  DateTime @default(now())
+
+  @@index([runId])
+  @@index([marketId, createdAt])
+}
+
+model Simulation {
+  id         String   @id @default(cuid())
+  marketId   String?
+  market     Market?  @relation(fields: [marketId], references: [id])
+  investment Float
+  entryPrice Float
+  exitPrice  Float
+  shares     Float
+  finalValue Float
+  profit     Float
+  roi        Float
+  createdAt  DateTime @default(now())
+}
+
+model Strategy {
+  id                String        @id @default(cuid())
+  name              String        @unique
+  description       String?
+  promptTemplate    String
+  batchSize         Int           @default(4)
+  active            Boolean       @default(true)
+  scheduleEnabled   Boolean       @default(false)
+  scheduleCron      String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  runs              StrategyRun[]
+}
+
+model StrategyRun {
+  id               String      @id @default(cuid())
+  strategyId       String
+  strategy         Strategy    @relation(fields: [strategyId], references: [id])
+  status           String      @default("pending")
+  batchSize        Int         @default(4)
+  selectedCount    Int         @default(0)
+  signalCount      Int         @default(0)
+  batchesCompleted Int         @default(0)
+  errorMsg         String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  runtimeMs        Int?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  signals          Signal[]
+
+  @@index([strategyId, createdAt])
+}

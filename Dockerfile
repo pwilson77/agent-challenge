@@ -20,11 +20,11 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 # Copy package manifest and install dependencies
-COPY package.json ./
+COPY agent/package.json ./
 RUN pnpm install
 
-# Copy all source files
-COPY . .
+# Copy agent source files
+COPY agent/ .
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data

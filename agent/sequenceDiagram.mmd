@@ -1,0 +1,32 @@
+sequenceDiagram
+    actor User
+    participant UI as Next.js Dashboard
+    participant Markets as Markets API
+    participant Strategies as Strategies API
+    participant Runs as Strategy Runs API
+    participant Runner as Strategy Runner
+    participant Eliza as Eliza Agent
+    participant DB as SQLite via Prisma
+
+    User->>UI: Open dashboard
+    UI->>Markets: GET /api/markets
+    Markets->>DB: Upsert market snapshot
+    DB-->>Markets: Stored markets
+    Markets-->>UI: Paginated market data
+    UI->>Strategies: GET /api/strategies
+    Strategies->>DB: Ensure default strategy
+    DB-->>Strategies: Active strategies
+    Strategies-->>UI: Strategy list
+    User->>UI: Select markets and run strategy
+    UI->>Runs: POST /api/strategy-runs
+    Runs->>Runner: Execute selected strategy
+    Runner->>Eliza: Analyze market batches
+    Eliza-->>Runner: Signals with reasoning
+    Runner->>DB: Persist run + signals
+    DB-->>Runner: Stored results
+    Runner-->>Runs: Completed run summary
+    Runs-->>UI: Run id and status
+    UI->>Runs: GET /api/strategy-runs/:id
+    Runs->>DB: Load stored signals
+    DB-->>Runs: Run details
+    Runs-->>UI: Persisted analysis results

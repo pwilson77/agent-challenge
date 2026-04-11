@@ -8,20 +8,26 @@
  * ElizaOS Plugin Docs: https://elizaos.github.io/eliza/docs/core/plugins
  */
 
-import { type Plugin } from "@elizaos/core";
+import { type Action, type Memory, type Plugin } from "@elizaos/core";
 
 /**
  * Example custom action.
  * Replace this with your own action logic.
  */
-const exampleAction = {
+const exampleAction: Action = {
   name: "EXAMPLE_ACTION",
   description: "An example action — replace with your own.",
   similes: ["DEMO", "SAMPLE"],
   validate: async () => true,
-  handler: async (_runtime: unknown, message: { content: { text: string } }) => {
-    console.log("Custom action triggered with message:", message.content.text);
-    return true;
+  handler: async (_runtime, message: Memory) => {
+    console.log(
+      "Custom action triggered with message:",
+      message.content.text ?? "",
+    );
+    return {
+      success: true,
+      text: "Example action executed.",
+    };
   },
   examples: [],
 };

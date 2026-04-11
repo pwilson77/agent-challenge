@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+}
+
+* {
+  border-color: rgb(30 41 59 / 0.8);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--foreground);
+  background:
+    radial-gradient(circle at 10% 0%, rgb(8 47 73 / 0.9), transparent 35%),
+    radial-gradient(circle at 80% 10%, rgb(30 58 138 / 0.35), transparent 30%),
+    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.signal-grid > * {
+  animation: fade-up 0.45s ease-out both;
+}
+
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
