@@ -18,7 +18,7 @@
           "NODE_ENV": "production",
           "ELIZAOS_TELEMETRY_DISABLED": "true",
           "OPENROUTER_API_KEY": "",
-          "OPENROUTER_FALLBACK_MODEL": "anthropic/claude-3-haiku"
+          "OPENROUTER_FALLBACK_MODEL": "deepseek/deepseek-v3.2"
         }
       }
     }

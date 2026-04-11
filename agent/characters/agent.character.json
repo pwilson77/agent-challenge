@@ -1,7 +1,10 @@
 {
   "name": "PolyAgent",
   "username": "polyagent",
-  "plugins": ["@elizaos/plugin-bootstrap", "@elizaos/plugin-openai"],
+  "plugins": [
+    "@elizaos/plugin-bootstrap",
+    "@elizaos/plugin-openrouter"
+  ],
   "settings": {
     "model": "Qwen3.5-9B-FP8",
     "secrets": {}

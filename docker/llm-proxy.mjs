@@ -17,10 +17,14 @@
 import http from "node:http";
 
 const PORT = parseInt(process.env.LLM_PROXY_PORT ?? "4000", 10);
-const NOSANA_BASE = (process.env.NOSANA_OPENAI_BASE_URL ?? "").replace(/\/$/, "");
+const NOSANA_BASE = (process.env.NOSANA_OPENAI_BASE_URL ?? "").replace(
+  /\/$/,
+  "",
+);
 const OR_KEY = process.env.OPENROUTER_API_KEY ?? "";
 const OR_BASE = "https://openrouter.ai/api/v1";
-const OR_MODEL = process.env.OPENROUTER_FALLBACK_MODEL ?? "anthropic/claude-3-haiku";
+const OR_MODEL =
+  process.env.OPENROUTER_FALLBACK_MODEL ?? "anthropic/claude-3-haiku";
 
 if (!NOSANA_BASE) {
   console.error("[llm-proxy] NOSANA_OPENAI_BASE_URL is required");
@@ -113,11 +117,9 @@ http
     // ── Completion path: try Nosana first ─────────────────────────────────
     let nosanaFailed = false;
     try {
-      const nosanaRes = await forward(
-        `${NOSANA_BASE}${path}`,
-        body,
-        { authorization: req.headers.authorization ?? "Bearer nosana" },
-      );
+      const nosanaRes = await forward(`${NOSANA_BASE}${path}`, body, {
+        authorization: req.headers.authorization ?? "Bearer nosana",
+      });
 
       if (nosanaRes.ok) {
         await pipeResponse(nosanaRes, res);
@@ -165,11 +167,7 @@ http
       });
       await pipeResponse(orRes, res);
     } catch (err) {
-      sendError(
-        res,
-        500,
-        `Both Nosana and OpenRouter failed: ${err.message}`,
-      );
+      sendError(res, 500, `Both Nosana and OpenRouter failed: ${err.message}`);
     }
   })
   .listen(PORT, "127.0.0.1", () => {
