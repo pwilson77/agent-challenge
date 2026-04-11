@@ -6,6 +6,7 @@ FROM node:23-slim AS base
 RUN apt-get update && apt-get install -y \
   ca-certificates \
   curl \
+  unzip \
   python3 \
   make \
   g++ \
@@ -14,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Bun (required by elizaos runtime scripts)
 RUN curl -fsSL https://bun.sh/install | bash \
-  && ln -s /root/.bun/bin/bun /usr/local/bin/bun
+  && ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
 # Disable telemetry
 ENV ELIZAOS_TELEMETRY_DISABLED=true
