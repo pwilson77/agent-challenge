@@ -9,6 +9,17 @@ on:
       - "Dockerfile"
       - ".dockerignore"
   workflow_dispatch:
+    inputs:
+      push_latest:
+        description: "Also push latest tag"
+        required: false
+        default: true
+        type: boolean
+      image_tag:
+        description: "Optional extra image tag (for example: rc-1)"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build-and-push:
@@ -26,14 +37,35 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Prepare image tags
+        id: prep
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_LATEST: ${{ github.event.inputs.push_latest || 'true' }}
+          EXTRA_TAG: ${{ github.event.inputs.image_tag || '' }}
+        run: |
+          TAGS="pwilson99/nosana-eliza-agent:${GITHUB_SHA}"
+
+          if [[ "${EVENT_NAME}" == "push" || "${PUSH_LATEST}" == "true" ]]; then
+            TAGS+=$'\n'"pwilson99/nosana-eliza-agent:latest"
+          fi
+
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            TAGS+=$'\n'"pwilson99/nosana-eliza-agent:${EXTRA_TAG}"
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            pwilson99/nosana-eliza-agent:latest
-            pwilson99/nosana-eliza-agent:${{ github.sha }}
+          tags: ${{ steps.prep.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
