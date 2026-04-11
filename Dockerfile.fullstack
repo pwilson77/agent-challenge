@@ -45,6 +45,7 @@ RUN cd /app/frontend && npx prisma generate && npm run build
 
 # Startup supervisor for both processes.
 COPY docker/start-combined.sh /app/docker/start-combined.sh
+COPY docker/llm-proxy.mjs /app/docker/llm-proxy.mjs
 RUN chmod +x /app/docker/start-combined.sh && mkdir -p /app/data
 
 ENV NODE_ENV=production

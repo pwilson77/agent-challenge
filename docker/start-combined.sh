@@ -5,10 +5,22 @@ set -eu
 : "${PORT:=3000}"
 : "${DATABASE_URL:=file:/app/data/polymarket.db}"
 : "${ELIZA_AGENT_URL:=http://127.0.0.1:${ELIZA_SERVER_PORT}}"
+: "${LLM_PROXY_PORT:=4000}"
 
 export ELIZA_AGENT_URL
 
+# ── LLM proxy setup ──────────────────────────────────────────────────────────
+# Save the real Nosana endpoint so the proxy can reach it, then redirect
+# Eliza to the proxy so we can fall back to OpenRouter on Nosana failures.
+if [ -n "${OPENAI_BASE_URL:-}" ]; then
+  export NOSANA_OPENAI_BASE_URL="$OPENAI_BASE_URL"
+  export OPENAI_BASE_URL="http://127.0.0.1:${LLM_PROXY_PORT}/v1"
+fi
+
 cleanup() {
+  if [ -n "${proxy_pid:-}" ] && kill -0 "$proxy_pid" 2>/dev/null; then
+    kill "$proxy_pid" 2>/dev/null || true
+  fi
   if [ -n "${agent_pid:-}" ] && kill -0 "$agent_pid" 2>/dev/null; then
     kill "$agent_pid" 2>/dev/null || true
   fi
@@ -18,6 +30,10 @@ cleanup() {
 }
 
 trap cleanup INT TERM
+
+# Start LLM proxy (Nosana → OpenRouter fallback).
+node /app/docker/llm-proxy.mjs &
+proxy_pid=$!
 
 # Start Eliza agent on an internal port for the Next.js app to consume.
 cd /app/agent
@@ -54,12 +70,15 @@ npx prisma migrate deploy
 npm run start -- --hostname 0.0.0.0 --port "$PORT" &
 next_pid=$!
 
-# Keep container alive while both processes are healthy.
-while kill -0 "$agent_pid" 2>/dev/null && kill -0 "$next_pid" 2>/dev/null; do
+# Keep container alive while all processes are healthy.
+while kill -0 "$proxy_pid" 2>/dev/null && kill -0 "$agent_pid" 2>/dev/null && kill -0 "$next_pid" 2>/dev/null; do
   sleep 2
 done
 
-if ! kill -0 "$agent_pid" 2>/dev/null; then
+if ! kill -0 "$proxy_pid" 2>/dev/null; then
+  wait "$proxy_pid"
+  status=$?
+elif ! kill -0 "$agent_pid" 2>/dev/null; then
   wait "$agent_pid"
   status=$?
 else
