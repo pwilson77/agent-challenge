@@ -265,6 +265,32 @@ docker push pwilson99/nosana-eliza-agent:latest
 
 > **Tip:** Make sure your Docker Hub repository is **public** so Nosana nodes can pull it.
 
+### Optional: Single-Container Fullstack Mode (Agent + Next.js UI)
+
+If you want one container that runs both the Eliza agent and the Next.js dashboard, use `Dockerfile.fullstack` from the repo root.
+
+```bash
+# Build the combined image (agent + frontend)
+docker build -f Dockerfile.fullstack -t pwilson99/polymarket-fullstack:latest .
+
+# Run locally
+docker run --rm -p 3000:3000 \
+  -e OPENAI_API_KEY=nosana \
+  -e OPENAI_BASE_URL=https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1 \
+  -e OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8 \
+  -e OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8 \
+  -e MODEL_NAME=Qwen3.5-9B-FP8 \
+  -e ELIZA_SERVER_PORT=3001 \
+  -e PORT=3000 \
+  -e DATABASE_URL=file:/app/data/polymarket.db \
+  pwilson99/polymarket-fullstack:latest
+
+# Push image
+docker push pwilson99/polymarket-fullstack:latest
+```
+
+In this mode, the UI is exposed on port `3000` and talks to the in-container Eliza process via `http://127.0.0.1:3001`.
+
 ### Step 2: Configure Your Job Definition
 
 The job definition at `nos_job_def/nosana_eliza_job_definition.json` is already configured with the correct Nosana inference endpoint. You only need to update the image name:

@@ -1,0 +1,72 @@
+name: Build and Push Fullstack Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "agent/**"
+      - "polymarket-intelligence-agent/**"
+      - "docker/**"
+      - "Dockerfile.fullstack"
+  workflow_dispatch:
+    inputs:
+      push_latest:
+        description: "Also push latest tag"
+        required: false
+        default: true
+        type: boolean
+      image_tag:
+        description: "Optional extra image tag (for example: rc-1)"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Prepare image tags
+        id: prep
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_LATEST: ${{ github.event.inputs.push_latest || 'true' }}
+          EXTRA_TAG: ${{ github.event.inputs.image_tag || '' }}
+        run: |
+          TAGS="pwilson99/polymarket-fullstack:${GITHUB_SHA}"
+
+          if [[ "${EVENT_NAME}" == "push" || "${PUSH_LATEST}" == "true" ]]; then
+            TAGS+=$'\n'"pwilson99/polymarket-fullstack:latest"
+          fi
+
+          if [[ -n "${EXTRA_TAG}" ]]; then
+            TAGS+=$'\n'"pwilson99/polymarket-fullstack:${EXTRA_TAG}"
+          fi
+
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.fullstack
+          push: true
+          tags: ${{ steps.prep.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
