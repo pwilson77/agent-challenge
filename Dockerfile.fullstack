@@ -19,7 +19,6 @@ RUN curl -fsSL https://bun.sh/install | bash \
 
 ENV ELIZAOS_TELEMETRY_DISABLED=true
 ENV DO_NOT_TRACK=1
-ENV NODE_ENV=production
 ENV PORT=3000
 ENV ELIZA_SERVER_PORT=3001
 ENV ELIZA_AGENT_URL=http://127.0.0.1:3001
@@ -47,6 +46,8 @@ RUN cd /app/frontend && npx prisma generate && npm run build
 # Startup supervisor for both processes.
 COPY docker/start-combined.sh /app/docker/start-combined.sh
 RUN chmod +x /app/docker/start-combined.sh && mkdir -p /app/data
+
+ENV NODE_ENV=production
 
 EXPOSE 3000
 
