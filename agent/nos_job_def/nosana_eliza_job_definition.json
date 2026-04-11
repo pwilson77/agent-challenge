@@ -6,7 +6,7 @@
       "id": "agent",
       "type": "container/run",
       "args": {
-        "image": "pwilson99/nosana-eliza-agent:7e93372",
+        "image": "pwilson99/nosana-eliza-agent:9e3437a",
         "expose": 3000,
         "env": {
           "OPENAI_API_KEY": "nosana",
