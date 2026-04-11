@@ -73,7 +73,7 @@ jobs:
       - name: Smoke test runtime dependencies
         run: |
           docker run --rm local/nosana-eliza-agent:smoke sh -lc "bun --version"
-          docker run --rm local/nosana-eliza-agent:smoke sh -lc "elizaos --help >/dev/null"
+          docker run --rm local/nosana-eliza-agent:smoke sh -lc "pnpm exec elizaos --help >/dev/null"
 
       - name: Build and push
         uses: docker/build-push-action@v6
