@@ -1,4 +1,4 @@
-name: Build and Push Fullstack Docker Image
+name: Build and Push Docker Image
 
 on:
   push:
@@ -8,7 +8,9 @@ on:
       - "agent/**"
       - "polymarket-intelligence-agent/**"
       - "docker/**"
+      - "Dockerfile"
       - "Dockerfile.fullstack"
+      - ".dockerignore"
   workflow_dispatch:
     inputs:
       push_latest:
@@ -45,14 +47,14 @@ jobs:
           PUSH_LATEST: ${{ github.event.inputs.push_latest || 'true' }}
           EXTRA_TAG: ${{ github.event.inputs.image_tag || '' }}
         run: |
-          TAGS="pwilson99/polymarket-fullstack:${GITHUB_SHA}"
+          TAGS="pwilson99/nosana-eliza-agent:${GITHUB_SHA}"
 
           if [[ "${EVENT_NAME}" == "push" || "${PUSH_LATEST}" == "true" ]]; then
-            TAGS+=$'\n'"pwilson99/polymarket-fullstack:latest"
+            TAGS+=$'\n'"pwilson99/nosana-eliza-agent:latest"
           fi
 
           if [[ -n "${EXTRA_TAG}" ]]; then
-            TAGS+=$'\n'"pwilson99/polymarket-fullstack:${EXTRA_TAG}"
+            TAGS+=$'\n'"pwilson99/nosana-eliza-agent:${EXTRA_TAG}"
           fi
 
           {
