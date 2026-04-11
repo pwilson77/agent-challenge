@@ -90,6 +90,20 @@ function getElizaBaseUrl() {
   );
 }
 
+/** Returns false quickly if the Eliza agent is unreachable. */
+async function isElizaReachable(): Promise<boolean> {
+  const baseUrl = getElizaBaseUrl();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(`${baseUrl}/healthz`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 type ElizaUuid = `${string}-${string}-${string}-${string}-${string}`;
 
 function asElizaUuid(value: string): ElizaUuid {
@@ -330,6 +344,12 @@ export async function analyzeMarketsWithElizaChannel(
   abortSignal?: AbortSignal,
   strategyPrompt?: string,
 ): Promise<Signal[]> {
+  // Fast-fail to mock signals if Eliza agent is unreachable.
+  const reachable = await isElizaReachable();
+  if (!reachable) {
+    return markets.map(buildMockSignal);
+  }
+
   const baseUrl = getElizaBaseUrl();
   const client = getElizaClient();
   const agentId = await resolveAgentId(client);
