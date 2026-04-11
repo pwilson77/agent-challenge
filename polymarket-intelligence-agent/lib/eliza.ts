@@ -90,7 +90,7 @@ function getElizaBaseUrl() {
   );
 }
 
-/** Returns false quickly if the Eliza agent is unreachable. */
+/** Returns false quickly if the Eliza agent process is unreachable. */
 async function isElizaReachable(): Promise<boolean> {
   const baseUrl = getElizaBaseUrl();
   try {
@@ -102,6 +102,56 @@ async function isElizaReachable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Direct OpenRouter fallback — used when Eliza/Nosana is unavailable.
+ * Requires OPENROUTER_API_KEY in env.
+ */
+export async function analyzeWithOpenRouter(
+  markets: Market[],
+  strategyPrompt?: string,
+): Promise<Signal[]> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
+
+  const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-3-haiku";
+  const prompt = buildAnalysisPrompt(markets, strategyPrompt);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30_000);
+
+  let res: Response;
+  try {
+    res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/pwilson77/agent-challenge",
+        "X-Title": "Polymarket Intelligence Agent",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+      }),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`OpenRouter error ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const raw = data.choices?.[0]?.message?.content ?? "";
+  return parseSignalsFromAgent(raw, markets);
 }
 
 type ElizaUuid = `${string}-${string}-${string}-${string}-${string}`;
@@ -344,34 +394,47 @@ export async function analyzeMarketsWithElizaChannel(
   abortSignal?: AbortSignal,
   strategyPrompt?: string,
 ): Promise<Signal[]> {
-  // Fast-fail to mock signals if Eliza agent is unreachable.
-  const reachable = await isElizaReachable();
-  if (!reachable) {
-    return markets.map(buildMockSignal);
+  // Try the Eliza channel when the agent process is reachable.
+  if (await isElizaReachable()) {
+    try {
+      const baseUrl = getElizaBaseUrl();
+      const client = getElizaClient();
+      const agentId = await resolveAgentId(client);
+      const userId = asElizaUuid(
+        process.env.ELIZA_USER_ID?.trim() || DEFAULT_ELIZA_USER_ID,
+      );
+      const channel = await getOrCreateAnalysisChannel(client, agentId, userId);
+
+      await postChannelMessage(
+        baseUrl,
+        channel.id,
+        userId,
+        buildAnalysisPrompt(markets, strategyPrompt),
+      );
+
+      return await waitForChannelReply(
+        client,
+        channel.id as ElizaUuid,
+        agentId,
+        markets,
+        abortSignal,
+      );
+    } catch (elizaErr) {
+      // Eliza process is up but LLM (Nosana) is likely down — fall through.
+      console.warn(
+        "[eliza] channel analysis failed, attempting OpenRouter fallback:",
+        elizaErr instanceof Error ? elizaErr.message : elizaErr,
+      );
+    }
   }
 
-  const baseUrl = getElizaBaseUrl();
-  const client = getElizaClient();
-  const agentId = await resolveAgentId(client);
-  const userId = asElizaUuid(
-    process.env.ELIZA_USER_ID?.trim() || DEFAULT_ELIZA_USER_ID,
-  );
-  const channel = await getOrCreateAnalysisChannel(client, agentId, userId);
+  // Fallback: call OpenRouter directly if a key is configured.
+  if (process.env.OPENROUTER_API_KEY) {
+    return analyzeWithOpenRouter(markets, strategyPrompt);
+  }
 
-  await postChannelMessage(
-    baseUrl,
-    channel.id,
-    userId,
-    buildAnalysisPrompt(markets, strategyPrompt),
-  );
-
-  return waitForChannelReply(
-    client,
-    channel.id as ElizaUuid,
-    agentId,
-    markets,
-    abortSignal,
-  );
+  // No fallback available — return mock signals.
+  return markets.map(buildMockSignal);
 }
 
 function chunkMarkets(markets: Market[], batchSize: number): Market[][] {

@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AgentStatus } from "@/app/api/status/route";
 import type {
   Market,
   MarketsResponse,
@@ -99,8 +100,16 @@ export default function DashboardPage() {
   const [strategyRuns, setStrategyRuns] = useState<StrategyRun[]>([]);
   const [marketDetailsOpen, setMarketDetailsOpen] = useState(false);
   const [detailMarket, setDetailMarket] = useState<Market | null>(null);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
 
   const prevMarketsRef = useRef<Market[]>([]);
+
+  useEffect(() => {
+    fetch("/api/status")
+      .then((r) => r.json() as Promise<AgentStatus>)
+      .then(setAgentStatus)
+      .catch(() => null);
+  }, []);
 
   const pushActivity = useCallback((message: string) => {
     setActivity((prev) =>
@@ -506,6 +515,21 @@ export default function DashboardPage() {
         ) : (
           <StatsOverview signals={signals} marketCount={markets.length} />
         )}
+
+        {agentStatus !== null &&
+        (!agentStatus.eliza || agentStatus.nosana === "down") ? (
+          <div className="flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {!agentStatus.eliza
+                ? "Eliza agent is offline."
+                : "Nosana inference endpoint is offline."}
+              {agentStatus.openrouter
+                ? " Falling back to OpenRouter for analysis."
+                : " No LLM fallback configured — add OPENROUTER_API_KEY to enable OpenRouter fallback."}
+            </span>
+          </div>
+        ) : null}
 
         {error !== null ? (
           <Card className="border-rose-500/40 bg-rose-950/20">
