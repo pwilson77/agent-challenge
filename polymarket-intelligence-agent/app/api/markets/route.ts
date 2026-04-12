@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { fetchMarkets } from "@/lib/polymarket";
+import { fetchMarkets, fetchSearchMarkets } from "@/lib/polymarket";
 import { prisma } from "@/lib/prisma";
 import type { MarketsResponse } from "@/lib/types";
 
@@ -25,13 +25,19 @@ export async function GET(req: NextRequest) {
       ? Math.min(Math.max(Math.floor(pageSizeParam), 1), 100)
       : limit;
 
+    const hasSearch = search.trim().length > 0;
     const requested = Math.max(limit, page * pageSize);
-    const fetchLimit = Math.min(requested, 100);
 
-    const { markets, source: fetchSource } = await fetchMarkets(
-      fetchLimit,
-      search,
-    );
+    const searchResult = hasSearch
+      ? await fetchSearchMarkets(search, {
+          limitPerType: 60,
+          maxPages: 8,
+        })
+      : null;
+
+    const { markets, source: fetchSource } =
+      searchResult ?? (await fetchMarkets(Math.min(requested, 100), search));
+
     const start = (page - 1) * pageSize;
     const pagedMarkets = markets.slice(start, start + pageSize);
 
@@ -40,6 +46,8 @@ export async function GET(req: NextRequest) {
         prisma.market.upsert({
           where: { id: market.id },
           update: {
+            conditionId: market.conditionId ?? null,
+            clobTokenId: market.clobTokenId ?? null,
             question: market.question,
             probability: market.probability,
             volume: market.volume,
@@ -48,6 +56,8 @@ export async function GET(req: NextRequest) {
           },
           create: {
             id: market.id,
+            conditionId: market.conditionId ?? null,
+            clobTokenId: market.clobTokenId ?? null,
             question: market.question,
             probability: market.probability,
             volume: market.volume,
@@ -60,15 +70,28 @@ export async function GET(req: NextRequest) {
 
     const total = markets.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const hasNextFromTotal = page < totalPages;
+    const hasNextFromSearchResult = Boolean(
+      hasSearch && searchResult?.hasMore && page >= totalPages,
+    );
 
-    const responseMarkets = stored.map((market) => ({
-      id: market.id,
-      question: market.question,
-      probability: market.probability,
-      volume: market.volume,
-      liquidity: market.liquidity,
-      endDate: market.endDate?.toISOString(),
-    }));
+    const pagedById = new Map(pagedMarkets.map((m) => [m.id, m]));
+    const responseMarkets = stored.map((market) => {
+      const live = pagedById.get(market.id);
+      return {
+        id: market.id,
+        conditionId: market.conditionId ?? undefined,
+        clobTokenId: market.clobTokenId ?? undefined,
+        outcomes: live?.outcomes,
+        outcomePrices: live?.outcomePrices,
+        outcomeTokenIds: live?.outcomeTokenIds,
+        question: market.question,
+        probability: market.probability,
+        volume: market.volume,
+        liquidity: market.liquidity,
+        endDate: market.endDate?.toISOString(),
+      };
+    });
 
     const payload: MarketsResponse = {
       markets: responseMarkets,
@@ -79,7 +102,7 @@ export async function GET(req: NextRequest) {
         pageSize,
         total,
         totalPages,
-        hasNext: page < totalPages,
+        hasNext: hasNextFromTotal || hasNextFromSearchResult,
         hasPrev: page > 1,
       },
     };

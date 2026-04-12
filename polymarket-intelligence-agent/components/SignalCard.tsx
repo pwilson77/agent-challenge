@@ -13,13 +13,19 @@ function actionBadge(action: Signal["action"]): "buy" | "sell" | "monitor" {
   return "monitor";
 }
 
+function actionLabel(action: Signal["action"]): string {
+  if (action === "BUY") return "BUY YES";
+  if (action === "SELL") return "BUY NO";
+  return "MONITOR";
+}
+
 export function SignalCard({ signal }: SignalCardProps) {
   return (
     <Card className="h-full border-slate-800 bg-slate-900/60">
       <CardHeader className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <CardTitle className="text-base leading-6 text-slate-100">{signal.market}</CardTitle>
-          <Badge variant={actionBadge(signal.action)}>{signal.action}</Badge>
+          <Badge variant={actionBadge(signal.action)}>{actionLabel(signal.action)}</Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="neutral">{signal.signal.replace("_", " ")}</Badge>

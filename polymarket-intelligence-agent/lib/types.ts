@@ -1,5 +1,10 @@
 export interface Market {
   id: string;
+  conditionId?: string;
+  clobTokenId?: string;
+  outcomes?: string[];
+  outcomePrices?: number[];
+  outcomeTokenIds?: string[];
   question: string;
   probability: number;
   volume: number;
@@ -80,4 +85,53 @@ export interface StrategyRun {
   createdAt: string;
   updatedAt: string;
   signals?: PersistedSignal[];
+}
+
+// ── Paper-trading simulation types ───────────────────────────────────────────
+
+export interface SimulationSession {
+  id: string;
+  name: string;
+  status: "active" | "paused" | "stopped";
+  betSize: number;
+  interval: "1h" | "4h" | "1d" | "custom";
+  intervalMin?: number | null;
+  nextTickAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  positions?: SimulationPosition[];
+  /** Aggregate across all open positions — only present on list responses */
+  totalPnl?: number;
+  positionCount?: number;
+}
+
+export interface SimulationPosition {
+  id: string;
+  sessionId: string;
+  marketId: string;
+  clobTokenId?: string | null;
+  marketQuestion: string;
+  action: "BUY" | "SELL";
+  betSize: number;
+  entryProbability: number;
+  shares: number;
+  status: "open" | "closed";
+  closedAt?: string | null;
+  closeProbability?: number | null;
+  realizedPnl?: number | null;
+  createdAt: string;
+  snapshots?: SimulationSnapshot[];
+  /** Latest computed open PnL — only present on detail responses */
+  currentProbability?: number;
+  openPnl?: number;
+}
+
+export interface SimulationSnapshot {
+  id: string;
+  sessionId: string;
+  positionId: string;
+  probability: number;
+  value: number;
+  pnl: number;
+  takenAt: string;
 }

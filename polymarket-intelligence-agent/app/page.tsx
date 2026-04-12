@@ -30,7 +30,7 @@ export default function HomePage() {
           </Button>
           <span className="inline-flex items-center gap-1 text-sm text-slate-400">
             <TrendingUp className="h-4 w-4 text-emerald-300" />
-            Refreshes every 60 seconds
+            Refreshes when active and on demand
           </span>
         </div>
       </main>

@@ -9,6 +9,8 @@ datasource db {
 
 model Market {
   id          String       @id
+  conditionId String?
+  clobTokenId String?
   question    String
   probability Float
   volume      Float
@@ -82,4 +84,55 @@ model StrategyRun {
   signals          Signal[]
 
   @@index([strategyId, createdAt])
+}
+
+// ── Paper-trading simulation models ──────────────────────────────────────────
+
+model SimulationSession {
+  id          String               @id @default(cuid())
+  name        String
+  status      String               @default("active") // active | paused | stopped
+  betSize     Float                @default(100)
+  interval    String               @default("1h")     // 1h | 4h | 1d | custom
+  intervalMin Int?                                     // minutes, used when interval="custom"
+  nextTickAt  DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  positions   SimulationPosition[]
+}
+
+model SimulationPosition {
+  id               String               @id @default(cuid())
+  sessionId        String
+  session          SimulationSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  marketId         String
+  clobTokenId      String?
+  marketQuestion   String
+  action           String               // BUY | SELL
+  betSize          Float
+  entryProbability Float
+  shares           Float
+  status           String               @default("open") // open | closed
+  closedAt         DateTime?
+  closeProbability Float?
+  realizedPnl      Float?
+  createdAt        DateTime             @default(now())
+  snapshots        SimulationSnapshot[]
+
+  @@index([sessionId])
+  @@index([sessionId, status])
+}
+
+model SimulationSnapshot {
+  id          String             @id @default(cuid())
+  sessionId   String
+  positionId  String
+  position    SimulationPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  probability Float
+  value       Float
+  pnl         Float
+  takenAt     DateTime           @default(now())
+
+  @@index([sessionId, takenAt])
+  @@index([positionId, takenAt])
 }
