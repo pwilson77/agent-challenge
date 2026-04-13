@@ -11,6 +11,17 @@ Polymarket Intelligence Agent is a Next.js application for exploring live Polyma
 - Shows market details, liquidity, and the most recent stored analysis in the dashboard.
 - Falls back to deterministic mock analysis when the upstream AI service is unavailable.
 
+## Features
+
+- Signal Alpha Engine: Flags mispriced outcomes by comparing AI fair value against live market price.
+- Deep Reasoning Logs: Persists structured reasoning sections (market context, sentiment analysis, final verdict) for auditability.
+- Multi-Agent Personas: Toggle between Contrarian, Quant, News Junkie, and Balanced analyst modes.
+- Nosana-Ready Architecture: Built for low-latency inference with resilient fallback handling when upstream inference is unavailable.
+- Per-Market Analysis Modal: Run analysis directly on a single market, inspect latest signal context, and review recent analyses without leaving the modal.
+- Venue Deep Links: Open high-conviction markets and modal markets directly on Polymarket/Kalshi pages from the dashboard.
+- Market-Scoped Simulation Insights: View market-specific simulation PnL-over-time in the modal, including bet-placement timestamp and session controls.
+- Simulation Session Management: Delete simulation sessions from the modal with confirmation and automatic dashboard refresh.
+
 ## Core workflow
 
 ```mermaid
@@ -18,8 +29,10 @@ sequenceDiagram
     actor User
     participant UI as Next.js Dashboard
     participant Markets as Markets API
+  participant Compare as Comparison API
     participant Strategies as Strategies API
     participant Runs as Strategy Runs API
+  participant Sims as Simulations API
     participant Runner as Strategy Runner
     participant Eliza as Eliza Agent
     participant DB as SQLite via Prisma
@@ -46,6 +59,22 @@ sequenceDiagram
     Runs->>DB: Load stored signals
     DB-->>Runs: Run details
     Runs-->>UI: Persisted analysis results
+
+    User->>UI: Open cross-platform comparison
+    UI->>Compare: GET /api/markets/comparison
+    Compare->>DB: Read synced market snapshots
+    DB-->>Compare: Polymarket + venue data
+    Compare-->>UI: Arbitrage candidate list
+
+    User->>UI: Simulate selected signal
+    UI->>Sims: POST /api/simulations
+    Sims->>DB: Create session/positions/snapshots
+    DB-->>Sims: Stored simulation state
+    Sims-->>UI: Session id + current PnL
+    UI->>Sims: GET /api/simulations/:id
+    Sims->>DB: Load market-scoped history
+    DB-->>Sims: Simulation timeline
+    Sims-->>UI: PnL-over-time chart data
 ```
 
 ## Stack
@@ -112,11 +141,11 @@ npm run dev
 
 1. Open the dashboard and let the market sync finish.
 2. Search or page through Polymarket markets.
-3. Select one or more markets from the table.
-4. Switch to the Strategies tab and choose a strategy.
-5. Run the strategy on the selected markets.
-6. Review stored signals, confidence, reasoning, and run history.
-7. Click a market row to inspect liquidity, expiry, and the latest persisted summary.
+3. Click a market to open the analytics modal and run per-market analysis.
+4. In the modal, select a strategy, run analysis, and inspect latest signal reasoning.
+5. Use Simulate to add the latest market signal to a paper-trading simulation session.
+6. Review simulation PnL-over-time for that market and manage sessions directly in the modal.
+7. Use the History & Batch Operations panel when you need cross-market/batch analysis workflows.
 
 ## Docker deployment
 
@@ -175,6 +204,10 @@ npm run start
 
 - `app/dashboard/page.tsx`: dashboard, selection flow, and strategy execution UX.
 - `app/api/markets/route.ts`: Polymarket sync plus DB upsert.
+- `app/api/markets/comparison/route.ts`: heuristic cross-market arbitrage scanner (Polymarket vs Kalshi/Jupiter).
+- `components/MarketDetailModal.tsx`: per-market analysis modal, venue links, and simulation chart/session controls.
+- `components/HighConvictionGrid.tsx`: high-confidence signal cards with direct venue links.
+- `app/api/simulations/[id]/route.ts`: simulation detail, status updates, and session deletion.
 - `app/api/strategies/route.ts`: active strategies, including the default strategy.
 - `app/api/strategy-runs/route.ts`: run execution and history listing.
 - `lib/strategy-runner.ts`: strategy orchestration and signal persistence.
@@ -185,4 +218,6 @@ npm run start
 - The app stores strategy results in SQLite, not just in memory.
 - The default strategy is created automatically if it does not already exist.
 - If Eliza is unavailable, mock analysis keeps the UI functional for demos and testing.
+- Cross-market arbitrage recommendations are advisory heuristics (not auto-trading execution).
+- Simulation widgets in the market modal are scoped to the currently opened market.
 - Strategy scheduling fields exist in the data model, but automatic scheduled execution is not implemented yet.

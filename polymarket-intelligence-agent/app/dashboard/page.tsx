@@ -7,6 +7,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  ListFilter,
   LayoutGrid,
   Pencil,
   Plus,
@@ -26,7 +27,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Header } from "@/components/Header";
-import { MarketDetailModal } from "@/components/MarketDetailModal";
+import { HighConvictionGrid } from "@/components/HighConvictionGrid";
+import {
+  ADD_NEW_STRATEGY_VALUE,
+  type MarketRecentAnalysis,
+  MarketDetailModal,
+} from "@/components/MarketDetailModal";
 import { MarketTable } from "@/components/MarketTable";
 import { SignalCard } from "@/components/SignalCard";
 import { Button } from "@/components/ui/button";
@@ -41,7 +47,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AgentStatus } from "@/app/api/status/route";
 import type {
+  AnalystPersona,
   Market,
+  MarketComparison,
+  MarketComparisonResponse,
   MarketsResponse,
   PaginationMeta,
   PersistedSignal,
@@ -57,6 +66,7 @@ const MARKET_PAGE_SIZE = 12;
 interface StrategyDraft {
   name: string;
   description: string;
+  persona: AnalystPersona;
   promptTemplate: string;
   batchSize: number;
 }
@@ -68,9 +78,18 @@ interface SimCreateDraft {
   intervalMin: number;
 }
 
+type HeaderAction =
+  | "NONE"
+  | "ANALYZE"
+  | "REFRESH_MARKETS"
+  | "REFRESH_ARB"
+  | "SELECT_FILTERED"
+  | "CLEAR_SELECTION";
+
 const EMPTY_STRATEGY_DRAFT: StrategyDraft = {
   name: "",
   description: "",
+  persona: "BALANCED",
   promptTemplate: "",
   batchSize: 4,
 };
@@ -80,6 +99,24 @@ const DEFAULT_SIM_DRAFT: SimCreateDraft = {
   betSize: 100,
   interval: "1h",
   intervalMin: 60,
+};
+
+function personaLabel(persona: AnalystPersona | undefined): string {
+  if (persona === "CONTRARIAN") return "The Contrarian";
+  if (persona === "QUANT") return "The Quant";
+  if (persona === "NEWS_JUNKIE") return "The News Junkie";
+  return "Balanced";
+}
+
+const PERSONA_DESCRIPTIONS: Record<AnalystPersona, string> = {
+  BALANCED:
+    "Combines fundamentals, market flow, and sentiment for well-rounded probability estimates. Good default for most markets.",
+  CONTRARIAN:
+    "Actively pushes back on consensus-heavy YES trades. Looks for hidden NO-side value and challenges popular narratives.",
+  QUANT:
+    "Prioritises volume shifts, liquidity depth, and statistical dislocations. Ignores noise and focuses on measurable edges.",
+  NEWS_JUNKIE:
+    "Weights recent headlines, breaking developments, and sentiment regime changes. Best for fast-moving news-driven markets.",
 };
 
 interface ActivityItem {
@@ -124,6 +161,12 @@ export default function DashboardPage() {
     null,
   );
   const [signals, setSignals] = useState<Signal[]>([]);
+  const [arbOpportunities, setArbOpportunities] = useState<MarketComparison[]>(
+    [],
+  );
+  const [arbLoading, setArbLoading] = useState(false);
+  const [arbError, setArbError] = useState<string | null>(null);
+  const [arbUpdatedAt, setArbUpdatedAt] = useState<string | null>(null);
   const [latestSignalsByMarketId, setLatestSignalsByMarketId] = useState<
     Record<string, PersistedSignal>
   >({});
@@ -135,6 +178,9 @@ export default function DashboardPage() {
     "polymarket" | "mock" | null
   >(null);
   const [runExecuting, setRunExecuting] = useState(false);
+  const [analystPersona, setAnalystPersona] =
+    useState<AnalystPersona>("BALANCED");
+  const [headerAction, setHeaderAction] = useState<HeaderAction>("NONE");
   const [error, setError] = useState<string | null>(null);
   const [selectedMarketIds, setSelectedMarketIds] = useState<Set<string>>(
     new Set(),
@@ -181,8 +227,10 @@ export default function DashboardPage() {
   const [selectedSignalIds, setSelectedSignalIds] = useState<Set<string>>(
     new Set(),
   );
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
 
   const prevMarketsRef = useRef<Market[]>([]);
+  const [signalsFilterActive, setSignalsFilterActive] = useState(false);
 
   const loadMarkets = useCallback(async () => {
     setMarketsLoading(true);
@@ -192,6 +240,7 @@ export default function DashboardPage() {
       if (marketSearch.length > 0) query.set("q", marketSearch);
       query.set("page", String(marketPage));
       query.set("pageSize", String(MARKET_PAGE_SIZE));
+      if (signalsFilterActive) query.set("withSignals", "true");
 
       const res = await fetch(`/api/markets?${query.toString()}`);
       if (!res.ok) throw new Error(`Markets API returned ${res.status}`);
@@ -219,7 +268,7 @@ export default function DashboardPage() {
     } finally {
       setMarketsLoading(false);
     }
-  }, [marketPage, marketSearch]);
+  }, [marketPage, marketSearch, signalsFilterActive]);
 
   const refreshMarketsIfStale = useCallback(async () => {
     if (Date.now() - lastMarketsRefreshAt < MARKET_STALE_MS) return false;
@@ -254,6 +303,32 @@ export default function DashboardPage() {
     setStrategies(data.strategies);
     setSelectedStrategyId((prev) => prev || data.strategies[0]?.id || "");
   }, []);
+
+  const loadArbitrageComparisons = useCallback(async () => {
+    setArbLoading(true);
+    setArbError(null);
+    try {
+      const query = new URLSearchParams();
+      if (marketSearch.length > 0) query.set("q", marketSearch);
+      query.set("limit", "12");
+      query.set("threshold", "0.05");
+      const res = await fetch(`/api/markets/comparison?${query.toString()}`);
+      if (!res.ok) {
+        throw new Error(`Comparison API returned ${res.status}`);
+      }
+      const data = (await res.json()) as MarketComparisonResponse;
+      setArbOpportunities(data.opportunities);
+      setArbUpdatedAt(data.updatedAt);
+    } catch (err) {
+      setArbError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load arbitrage opportunities",
+      );
+    } finally {
+      setArbLoading(false);
+    }
+  }, [marketSearch]);
 
   const loadSimulations = useCallback(async () => {
     try {
@@ -314,6 +389,75 @@ export default function DashboardPage() {
     }
     return Array.from(byId.values());
   }, [runSignalsCache, selectedSignalIds]);
+
+  const highConvictionSignals = useMemo(() => {
+    const byId = new Map<string, Signal>();
+    for (const sig of Object.values(runSignalsCache).flat()) {
+      if (sig.confidence < 0.8) continue;
+      const market = marketById[sig.marketId];
+      const item: Signal = {
+        market: sig.marketQuestion,
+        marketId: sig.marketId,
+        conditionId: market?.conditionId,
+        probability: market?.probability ?? 0,
+        signal: sig.signalType,
+        confidence: sig.confidence,
+        reasoning: sig.reasoning,
+        fairPrice: sig.fairPrice,
+        reasoningSections: sig.reasoningSections,
+        action: sig.action,
+        timestamp: sig.createdAt,
+      };
+      byId.set(sig.id, item);
+    }
+    return Array.from(byId.values()).sort(
+      (a, b) => b.confidence - a.confidence,
+    );
+  }, [runSignalsCache, marketById]);
+
+  const statsSignals = useMemo(() => {
+    const flattened = Object.values(runSignalsCache).flat();
+    if (flattened.length === 0) return signals;
+    const deduped = new Map<string, Signal>();
+    for (const sig of flattened) {
+      if (deduped.has(sig.id)) continue;
+      const market = marketById[sig.marketId];
+      deduped.set(sig.id, {
+        market: sig.marketQuestion,
+        marketId: sig.marketId,
+        conditionId: market?.conditionId,
+        probability: market?.probability ?? 0,
+        signal: sig.signalType,
+        confidence: sig.confidence,
+        reasoning: sig.reasoning,
+        fairPrice: sig.fairPrice,
+        reasoningSections: sig.reasoningSections,
+        action: sig.action,
+        timestamp: sig.createdAt,
+      });
+    }
+    return Array.from(deduped.values());
+  }, [marketById, runSignalsCache, signals]);
+
+  const highConvictionSignalLink = useCallback(
+    (signal: Signal): string | null => {
+      const market = signal.marketId ? marketById[signal.marketId] : undefined;
+      if (market?.conditionId || signal.conditionId) {
+        return `https://polymarket.com/search?q=${encodeURIComponent(signal.market)}`;
+      }
+      if (market?.venue === "kalshi") {
+        if (market.externalId) {
+          return `https://kalshi.com/markets/${encodeURIComponent(market.externalId)}`;
+        }
+        return `https://kalshi.com/markets?query=${encodeURIComponent(signal.market)}`;
+      }
+      if (market?.externalId) {
+        return `https://kalshi.com/markets/${encodeURIComponent(market.externalId)}`;
+      }
+      return null;
+    },
+    [marketById],
+  );
 
   const openQuickSimFromSignal = useCallback(
     async (sig: PersistedSignal) => {
@@ -437,6 +581,7 @@ export default function DashboardPage() {
       setStrategyDraft({
         name: strategy.name,
         description: strategy.description ?? "",
+        persona: strategy.persona ?? "BALANCED",
         promptTemplate: strategy.promptTemplate,
         batchSize: strategy.batchSize,
       });
@@ -495,7 +640,7 @@ export default function DashboardPage() {
           },
           {},
         );
-        setLatestSignalsByMarketId(byMarketId);
+        setLatestSignalsByMarketId((prev) => ({ ...prev, ...byMarketId }));
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load run signals",
@@ -523,10 +668,14 @@ export default function DashboardPage() {
       const runSignals = data.run.signals ?? [];
       const signalCards: Signal[] = runSignals.map((s) => ({
         market: s.marketQuestion,
-        probability: 0,
+        marketId: s.marketId,
+        conditionId: marketById[s.marketId]?.conditionId,
+        probability: marketById[s.marketId]?.probability ?? 0,
         signal: s.signalType,
         confidence: s.confidence,
         reasoning: s.reasoning,
+        fairPrice: s.fairPrice,
+        reasoningSections: s.reasoningSections,
         action: s.action,
         timestamp: s.createdAt,
       }));
@@ -540,12 +689,12 @@ export default function DashboardPage() {
       );
 
       setSignals(signalCards);
-      setLatestSignalsByMarketId(byMarketId);
+      setLatestSignalsByMarketId((prev) => ({ ...prev, ...byMarketId }));
       setRunSignalsCache((prev) => ({ ...prev, [runId]: runSignals }));
       setExpandedRunId(runId);
       pushActivity(`Loaded analysis results for run ${runId.slice(0, 8)}.`);
     },
-    [pushActivity],
+    [marketById, pushActivity],
   );
 
   useEffect(() => {
@@ -572,12 +721,26 @@ export default function DashboardPage() {
   }, [loadStrategies, loadStrategyRuns]);
 
   useEffect(() => {
+    const selected = strategies.find((s) => s.id === selectedStrategyId);
+    if (!selected?.persona) return;
+    setAnalystPersona(selected.persona);
+  }, [selectedStrategyId, strategies]);
+
+  useEffect(() => {
     void loadSimulations();
   }, [loadSimulations]);
 
   useEffect(() => {
     void loadMarkets();
   }, [loadMarkets]);
+
+  useEffect(() => {
+    void loadArbitrageComparisons();
+  }, [loadArbitrageComparisons]);
+
+  useEffect(() => {
+    setMarketPage(1);
+  }, [signalsFilterActive]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -639,6 +802,30 @@ export default function DashboardPage() {
     };
   }, [searchDraft, searchModalOpen]);
 
+  useEffect(() => {
+    if (!marketDetailsOpen || !detailMarket) return;
+    const uncachedRuns = strategyRuns
+      .filter((run) => runSignalsCache[run.id] === undefined)
+      .slice(0, 6);
+    if (uncachedRuns.length === 0) return;
+    void Promise.all(uncachedRuns.map((run) => loadRunSignals(run.id)));
+  }, [
+    detailMarket,
+    loadRunSignals,
+    marketDetailsOpen,
+    runSignalsCache,
+    strategyRuns,
+  ]);
+
+  useEffect(() => {
+    if (strategyRuns.length === 0) return;
+    const uncachedRuns = strategyRuns
+      .filter((run) => runSignalsCache[run.id] === undefined)
+      .slice(0, 5);
+    if (uncachedRuns.length === 0) return;
+    void Promise.all(uncachedRuns.map((run) => loadRunSignals(run.id)));
+  }, [loadRunSignals, runSignalsCache, strategyRuns]);
+
   const actionsByMarket = useMemo(
     () => Object.fromEntries(signals.map((s) => [s.market, s.action])),
     [signals],
@@ -666,6 +853,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           strategyId: selectedStrategyId,
           marketIds: Array.from(selectedMarketIds),
+          persona: analystPersona,
         }),
       });
 
@@ -686,6 +874,7 @@ export default function DashboardPage() {
       setRunExecuting(false);
     }
   }, [
+    analystPersona,
     loadRunDetails,
     loadStrategyRuns,
     pushActivity,
@@ -745,12 +934,136 @@ export default function DashboardPage() {
     }
   }, [marketSearch, pushActivity]);
 
+  const runHeaderAction = useCallback(
+    async (action: HeaderAction) => {
+      if (action === "NONE") return;
+
+      if (action === "ANALYZE") {
+        await executeStrategy();
+      } else if (action === "REFRESH_MARKETS") {
+        await loadMarkets();
+      } else if (action === "REFRESH_ARB") {
+        await loadArbitrageComparisons();
+      } else if (action === "SELECT_FILTERED") {
+        await handleSelectAllFiltered();
+      } else if (action === "CLEAR_SELECTION") {
+        setSelectedMarketIds(new Set());
+      }
+
+      setHeaderAction("NONE");
+    },
+    [
+      executeStrategy,
+      handleSelectAllFiltered,
+      loadArbitrageComparisons,
+      loadMarkets,
+    ],
+  );
+
   const latestForDetail = detailMarket
     ? latestSignalsByMarketId[detailMarket.id]
     : undefined;
 
+  const recentAnalysesForDetail = useMemo(() => {
+    if (!detailMarket) return [] as MarketRecentAnalysis[];
+    const rows: MarketRecentAnalysis[] = [];
+    for (const run of strategyRuns) {
+      const runSignals = runSignalsCache[run.id];
+      if (!runSignals) continue;
+      const sig = runSignals.find((item) => item.marketId === detailMarket.id);
+      if (!sig) continue;
+      rows.push({
+        runId: run.id,
+        strategyName: run.strategyName,
+        signalType: sig.signalType,
+        action: sig.action,
+        confidence: sig.confidence,
+        createdAt: sig.createdAt,
+      });
+    }
+    return rows
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 8);
+  }, [detailMarket, runSignalsCache, strategyRuns]);
+
+  const simulationsForDetail = useMemo(() => {
+    if (!detailMarket) return simulations;
+    return simulations.filter((sim) =>
+      (sim.marketIds ?? []).includes(detailMarket.id),
+    );
+  }, [detailMarket, simulations]);
+
+  // Handler: run a single-market analysis for the currently opened modal market.
+  const handleRunMarketAnalysis = useCallback(async () => {
+    if (!detailMarket || !selectedStrategyId) return;
+    setRunExecuting(true);
+    setError(null);
+    try {
+      pushActivity(
+        `Running analysis on: ${detailMarket.question.slice(0, 60)}`,
+      );
+      const res = await fetch("/api/strategy-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          strategyId: selectedStrategyId,
+          marketIds: [detailMarket.id],
+          persona: analystPersona,
+        }),
+      });
+      if (!res.ok) throw new Error(`Strategy run API returned ${res.status}`);
+      const data = (await res.json()) as { run: StrategyRun };
+      await Promise.all([loadStrategyRuns(), loadRunDetails(data.run.id)]);
+      pushActivity(
+        `Analysis complete: ${data.run.signalCount} signal(s) generated.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setRunExecuting(false);
+    }
+  }, [
+    analystPersona,
+    detailMarket,
+    loadRunDetails,
+    loadStrategyRuns,
+    pushActivity,
+    selectedStrategyId,
+  ]);
+
+  // Handler: open quick-simulate flow using the latest persisted signal for this market.
+  const handleSimulateFromDetail = useCallback(async () => {
+    if (!detailMarket) return;
+    const sig = latestSignalsByMarketId[detailMarket.id];
+    if (!sig) return;
+    setMarketDetailsOpen(false);
+    await openQuickSimFromSignal(sig);
+  }, [detailMarket, latestSignalsByMarketId, openQuickSimFromSignal]);
+
+  const handleDeleteSimulationFromDetail = useCallback(
+    async (sessionId: string) => {
+      try {
+        const res = await fetch(`/api/simulations/${sessionId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+        await loadSimulations();
+        pushActivity(`Deleted simulation ${sessionId.slice(0, 8)}.`);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to delete simulation",
+        );
+        throw err;
+      }
+    },
+    [loadSimulations, pushActivity],
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100">
+    <div className="min-h-screen bg-linear-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100">
       <Header />
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-wrap items-center justify-between gap-4">
@@ -777,20 +1090,31 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearchDraft(marketSearch);
-                setSearchModalOpen(true);
+            <Select
+              value={headerAction}
+              onValueChange={(value) => {
+                const action = value as HeaderAction;
+                setHeaderAction(action);
+                void runHeaderAction(action);
               }}
             >
-              <Search className="h-4 w-4" />
-              Search Markets
-            </Button>
-            <Button variant="outline" onClick={() => void loadMarkets()}>
-              <RefreshCw className="h-4 w-4" />
-              Refresh Markets
-            </Button>
+              <SelectTrigger className="w-40 border-cyan-500/40 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/20">
+                <div className="flex items-center gap-2">
+                  <ListFilter className="h-4 w-4 text-slate-400" />
+                  <SelectValue placeholder="Actions" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE" disabled>
+                  Actions
+                </SelectItem>
+                <SelectItem value="ANALYZE">Analyze</SelectItem>
+                <SelectItem value="REFRESH_MARKETS">Refresh Markets</SelectItem>
+                <SelectItem value="REFRESH_ARB">Refresh Arb</SelectItem>
+                <SelectItem value="SELECT_FILTERED">Select Filtered</SelectItem>
+                <SelectItem value="CLEAR_SELECTION">Clear Selection</SelectItem>
+              </SelectContent>
+            </Select>
             {marketSearch.length > 0 ? (
               <Button
                 variant="secondary"
@@ -804,28 +1128,6 @@ export default function DashboardPage() {
                 {`Query: ${marketSearch}`}
               </Button>
             ) : null}
-            <Button
-              variant="outline"
-              onClick={() => void handleSelectAllFiltered()}
-            >
-              Select Filtered
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setSelectedMarketIds(new Set())}
-              disabled={selectedMarketIds.size === 0}
-            >
-              Clear Selection
-            </Button>
-            <Button
-              onClick={() => void executeStrategy()}
-              disabled={runExecuting || selectedStrategyId === ""}
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${runExecuting ? "animate-spin" : ""}`}
-              />
-              {runExecuting ? "Running…" : "Analyze"}
-            </Button>
           </div>
         </section>
 
@@ -836,8 +1138,13 @@ export default function DashboardPage() {
             ))}
           </section>
         ) : (
-          <StatsOverview signals={signals} marketCount={markets.length} />
+          <StatsOverview signals={statsSignals} marketCount={markets.length} />
         )}
+
+        <HighConvictionGrid
+          signals={highConvictionSignals.slice(0, 8)}
+          getSignalLink={highConvictionSignalLink}
+        />
 
         {agentStatus !== null &&
         (!agentStatus.eliza || agentStatus.nosana === "down") ? (
@@ -869,6 +1176,168 @@ export default function DashboardPage() {
         ) : null}
 
         {/* ── Strategies Table ── */}
+        {/* ── Top-level market search and filter ── */}
+        <div className="space-y-3">
+          <div className="relative">
+            <input
+              value={marketSearchInput}
+              readOnly
+              placeholder="Search markets by keyword, topic, or event…"
+              className="h-12 w-full cursor-pointer rounded-xl border border-slate-700 bg-slate-900/80 px-4 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              aria-label="Search live markets"
+              onFocus={() => {
+                setSearchDraft(marketSearchInput || marketSearch);
+                setSearchModalOpen(true);
+              }}
+              onClick={() => {
+                setSearchDraft(marketSearchInput || marketSearch);
+                setSearchModalOpen(true);
+              }}
+            />
+            {marketSearch.length > 0 ? (
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
+                onClick={() => {
+                  setMarketSearchInput("");
+                  setMarketSearch("");
+                  setMarketPage(1);
+                }}
+              >
+                Clear search
+              </button>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            {marketSearch.length > 0 ? (
+              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                Query: {marketSearch}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <MarketTable
+          markets={markets}
+          priceChanges={priceChanges}
+          actionsByMarket={actionsByMarket}
+          selectedMarketIds={selectedMarketIds}
+          onToggleMarket={handleToggleMarket}
+          onTogglePage={handleTogglePage}
+          onOpenMarketDetails={(market) => {
+            setDetailMarket(market);
+            setMarketDetailsOpen(true);
+          }}
+          pagination={marketPagination ?? undefined}
+          onPrevPage={() => setMarketPage((p) => Math.max(1, p - 1))}
+          onNextPage={() =>
+            setMarketPage((p) => {
+              const max = marketPagination?.totalPages ?? p + 1;
+              return Math.min(p + 1, max);
+            })
+          }
+          signalsFilterActive={signalsFilterActive}
+          onSignalsFilterChange={setSignalsFilterActive}
+          onCategoryFilter={(keyword) => {
+            setMarketSearch(keyword);
+            setMarketSearchInput(keyword);
+            setMarketPage(1);
+          }}
+        />
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>
+                Cross-Market Arbitrage (Polymarket vs Kalshi)
+              </CardTitle>
+              <span className="text-xs text-slate-500">
+                Threshold: 5.0% gap
+                {arbUpdatedAt
+                  ? ` • Updated ${new Date(arbUpdatedAt).toLocaleTimeString()}`
+                  : ""}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400">
+              <p>
+                Heuristic scanner: markets are paired by question similarity and
+                expiry compatibility, then ranked by YES-price spread.
+              </p>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-cyan-300">
+                  Learn more
+                </summary>
+                <p className="mt-1 text-slate-400">
+                  A recommendation means buy the cheaper YES side when the
+                  cross-venue gap is at least 5.0%. This is advisory and does
+                  not execute trades.
+                </p>
+              </details>
+            </div>
+            {arbLoading ? (
+              <div className="grid gap-2">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <Skeleton key={idx} className="h-10" />
+                ))}
+              </div>
+            ) : arbError ? (
+              <p className="text-sm text-rose-300">{arbError}</p>
+            ) : arbOpportunities.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No opportunities above the 5% threshold right now.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Market</TableHead>
+                    <TableHead className="w-28 text-right">
+                      Polymarket
+                    </TableHead>
+                    <TableHead className="w-24 text-right">Kalshi</TableHead>
+                    <TableHead className="w-24 text-right">Gap</TableHead>
+                    <TableHead className="w-44">Recommendation</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {arbOpportunities.map((opp) => (
+                    <TableRow key={opp.id}>
+                      <TableCell className="max-w-xl">
+                        <p className="truncate text-sm text-slate-200">
+                          {opp.question}
+                        </p>
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-slate-300">
+                        {(opp.polymarket.probability * 100).toFixed(2)}%
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-slate-300">
+                        {(opp.kalshi.probability * 100).toFixed(2)}%
+                      </TableCell>
+                      <TableCell
+                        className={`text-right text-xs ${
+                          opp.absoluteGap >= 0.05
+                            ? "text-emerald-300"
+                            : "text-slate-300"
+                        }`}
+                      >
+                        {(opp.absoluteGap * 100).toFixed(2)}%
+                      </TableCell>
+                      <TableCell className="text-xs text-cyan-300">
+                        {opp.recommendation === "BUY_KALSHI_YES"
+                          ? "Buy YES on Kalshi"
+                          : "Buy YES on Polymarket"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Strategies Table ── */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3">
@@ -896,6 +1365,7 @@ export default function DashboardPage() {
                     <TableHead className="hidden sm:table-cell">
                       Description
                     </TableHead>
+                    <TableHead className="w-40">Persona</TableHead>
                     <TableHead className="w-20 text-center">Batch</TableHead>
                     <TableHead className="w-20 text-center">Status</TableHead>
                     <TableHead className="w-16" />
@@ -934,6 +1404,11 @@ export default function DashboardPage() {
                           <span className="text-slate-600">—</span>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                          {personaLabel(strategy.persona)}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-center text-slate-300">
                         {strategy.batchSize}
                       </TableCell>
@@ -968,335 +1443,248 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <MarketTable
-          markets={markets}
-          priceChanges={priceChanges}
-          actionsByMarket={actionsByMarket}
-          selectedMarketIds={selectedMarketIds}
-          onToggleMarket={handleToggleMarket}
-          onTogglePage={handleTogglePage}
-          onOpenMarketDetails={(market) => {
-            setDetailMarket(market);
-            setMarketDetailsOpen(true);
-          }}
-          searchValue={marketSearchInput}
-          onSearchValueChange={setMarketSearchInput}
-          onSearchSubmit={() => {
-            setMarketPage(1);
-            setMarketSearch(marketSearchInput.trim());
-          }}
-          onSearchClear={() => {
-            setMarketSearchInput("");
-            setMarketSearch("");
-            setMarketPage(1);
-          }}
-          pagination={marketPagination ?? undefined}
-          onPrevPage={() => setMarketPage((p) => Math.max(1, p - 1))}
-          onNextPage={() =>
-            setMarketPage((p) => {
-              const max = marketPagination?.totalPages ?? p + 1;
-              return Math.min(p + 1, max);
-            })
-          }
-        />
-
-        <section className="grid gap-4 lg:grid-cols-3">
-          {/* ── Merged Strategy Runs + Signals card ── */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <CardTitle>Strategy Runs &amp; Signals</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={selectedStrategyId}
-                    onValueChange={setSelectedStrategyId}
-                  >
-                    <SelectTrigger className="w-44">
-                      <SelectValue placeholder="Select strategy" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {strategies.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={() => void executeStrategy()}
-                    disabled={runExecuting || selectedStrategyId === ""}
-                  >
-                    <RefreshCw
-                      className={`h-4 w-4 ${runExecuting ? "animate-spin" : ""}`}
-                    />
-                    {runExecuting
-                      ? "Running…"
-                      : `Run (${selectedMarketIds.size})`}
-                  </Button>
-                </div>
+        <Card>
+          <CardHeader className="py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">
+                  History &amp; Batch Operations
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Secondary panel for strategy run history, signal review, and
+                  bulk simulation.
+                </p>
               </div>
-              {/* Search bar */}
-              <div className="relative mt-2">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                <input
-                  value={signalSearchInput}
-                  onChange={(e) => setSignalSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter")
-                      setSignalSearch(signalSearchInput.trim());
-                  }}
-                  placeholder="Search by strategy, market, or signal type…"
-                  className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 pl-9 pr-9 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70"
-                />
-                {signalSearchInput.length > 0 && (
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                    onClick={() => {
-                      setSignalSearchInput("");
-                      setSignalSearch("");
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowHistoryPanel((prev) => !prev)}
+              >
+                {showHistoryPanel ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
                 )}
-              </div>
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                {showHistoryPanel ? "Hide" : "Show"}
+              </Button>
+            </div>
+          </CardHeader>
+        </Card>
+
+        {showHistoryPanel ? (
+          <section className="grid gap-4 lg:grid-cols-3">
+            {/* ── Merged Strategy Runs + Signals card ── */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle>Strategy Runs &amp; Signals</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={selectedStrategyId}
+                      onValueChange={setSelectedStrategyId}
+                    >
+                      <SelectTrigger className="w-44">
+                        <SelectValue placeholder="Select strategy" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {strategies.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={() => void executeStrategy()}
+                      disabled={runExecuting || selectedStrategyId === ""}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${runExecuting ? "animate-spin" : ""}`}
+                      />
+                      {runExecuting
+                        ? "Running…"
+                        : `Run (${selectedMarketIds.size})`}
+                    </Button>
+                  </div>
+                </div>
+                {/* Search bar */}
+                <div className="relative mt-2">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    value={signalSearchInput}
+                    onChange={(e) => setSignalSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter")
+                        setSignalSearch(signalSearchInput.trim());
+                    }}
+                    placeholder="Search by strategy, market, or signal type…"
+                    className="h-9 w-full rounded-md border border-slate-700 bg-slate-950 pl-9 pr-9 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/70"
+                  />
+                  {signalSearchInput.length > 0 && (
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      onClick={() => {
+                        setSignalSearchInput("");
+                        setSignalSearch("");
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant={
+                        signalViewMode === "cards" ? "default" : "outline"
+                      }
+                      onClick={() => setSignalViewMode("cards")}
+                    >
+                      <LayoutGrid className="h-4 w-4" />
+                      Cards
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={
+                        signalViewMode === "table" ? "default" : "outline"
+                      }
+                      onClick={() => setSignalViewMode("table")}
+                    >
+                      <Rows3 className="h-4 w-4" />
+                      Table
+                    </Button>
+                  </div>
                   <Button
                     size="sm"
-                    variant={signalViewMode === "cards" ? "default" : "outline"}
-                    onClick={() => setSignalViewMode("cards")}
+                    variant="outline"
+                    disabled={selectedSignals.length === 0}
+                    onClick={() => void openQuickSimFromSelected()}
                   >
-                    <LayoutGrid className="h-4 w-4" />
-                    Cards
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={signalViewMode === "table" ? "default" : "outline"}
-                    onClick={() => setSignalViewMode("table")}
-                  >
-                    <Rows3 className="h-4 w-4" />
-                    Table
+                    <CheckSquare className="h-4 w-4" />
+                    Simulate Selected ({selectedSignals.length})
                   </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={selectedSignals.length === 0}
-                  onClick={() => void openQuickSimFromSelected()}
-                >
-                  <CheckSquare className="h-4 w-4" />
-                  Simulate Selected ({selectedSignals.length})
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 p-0">
-              {(() => {
-                const q = signalSearch.toLowerCase();
-                const visibleRuns = strategyRuns.filter(
-                  (run) =>
-                    q.length === 0 ||
-                    run.strategyName.toLowerCase().includes(q) ||
-                    run.status.toLowerCase().includes(q),
-                );
-                if (visibleRuns.length === 0) {
-                  return (
-                    <p className="px-6 pb-4 text-sm text-slate-400">
-                      {strategyRuns.length === 0
-                        ? "No strategy runs yet. Select markets and click Run."
-                        : "No runs match your search."}
-                    </p>
-                  );
-                }
-                return visibleRuns.map((run) => {
-                  const isExpanded = expandedRunId === run.id;
-                  const cached = runSignalsCache[run.id] ?? [];
-                  const filteredSignals = cached.filter(
-                    (sig) =>
+              </CardHeader>
+              <CardContent className="space-y-2 p-0">
+                {(() => {
+                  const q = signalSearch.toLowerCase();
+                  const visibleRuns = strategyRuns.filter(
+                    (run) =>
                       q.length === 0 ||
-                      sig.marketQuestion.toLowerCase().includes(q) ||
-                      sig.signalType.toLowerCase().includes(q) ||
-                      sig.action.toLowerCase().includes(q),
+                      run.strategyName.toLowerCase().includes(q) ||
+                      run.status.toLowerCase().includes(q),
                   );
-                  const statusColor: Record<string, string> = {
-                    completed: "text-emerald-300 bg-emerald-500/15",
-                    running: "text-cyan-300 bg-cyan-500/15",
-                    pending: "text-amber-300 bg-amber-500/15",
-                    failed: "text-rose-300 bg-rose-500/15",
-                  };
-                  return (
-                    <div
-                      key={run.id}
-                      className="border-b border-slate-800/70 last:border-0"
-                    >
-                      {/* Run header row */}
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left hover:bg-slate-800/30 transition-colors"
-                        onClick={() => {
-                          if (isExpanded) {
-                            setExpandedRunId(null);
-                          } else {
-                            setExpandedRunId(run.id);
-                            void loadRunSignals(run.id);
-                          }
-                        }}
+                  if (visibleRuns.length === 0) {
+                    return (
+                      <p className="px-6 pb-4 text-sm text-slate-400">
+                        {strategyRuns.length === 0
+                          ? "No strategy runs yet. Select markets and click Run."
+                          : "No runs match your search."}
+                      </p>
+                    );
+                  }
+                  return visibleRuns.map((run) => {
+                    const isExpanded = expandedRunId === run.id;
+                    const cached = runSignalsCache[run.id] ?? [];
+                    const filteredSignals = cached.filter(
+                      (sig) =>
+                        q.length === 0 ||
+                        sig.marketQuestion.toLowerCase().includes(q) ||
+                        sig.signalType.toLowerCase().includes(q) ||
+                        sig.action.toLowerCase().includes(q),
+                    );
+                    const statusColor: Record<string, string> = {
+                      completed: "text-emerald-300 bg-emerald-500/15",
+                      running: "text-cyan-300 bg-cyan-500/15",
+                      pending: "text-amber-300 bg-amber-500/15",
+                      failed: "text-rose-300 bg-rose-500/15",
+                    };
+                    return (
+                      <div
+                        key={run.id}
+                        className="border-b border-slate-800/70 last:border-0"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="font-medium text-slate-100 truncate">
-                              {run.strategyName}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {new Date(run.createdAt).toLocaleString()} •{" "}
-                              {run.signalCount} signal
-                              {run.signalCount !== 1 ? "s" : ""}
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                            statusColor[run.status] ??
-                            "text-slate-300 bg-slate-700"
-                          }`}
+                        {/* Run header row */}
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left hover:bg-slate-800/30 transition-colors"
+                          onClick={() => {
+                            if (isExpanded) {
+                              setExpandedRunId(null);
+                            } else {
+                              setExpandedRunId(run.id);
+                              void loadRunSignals(run.id);
+                            }
+                          }}
                         >
-                          {run.status}
-                        </span>
-                      </button>
-
-                      {/* Expanded signals */}
-                      {isExpanded && (
-                        <div className="px-6 pb-4">
-                          {runSignalsCache[run.id] === undefined ? (
-                            <p className="text-sm text-slate-400">
-                              Loading signals…
-                            </p>
-                          ) : filteredSignals.length === 0 ? (
-                            <p className="text-sm text-slate-400">
-                              No signals
-                              {q.length > 0 ? " match your search" : ""}.
-                            </p>
-                          ) : signalViewMode === "cards" ? (
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              {filteredSignals.map((sig) => (
-                                <div
-                                  key={sig.id}
-                                  className="space-y-3 rounded-xl border border-slate-800/60 bg-slate-950/20 p-3"
-                                >
-                                  <div className="flex items-center justify-between gap-2 px-1">
-                                    <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedSignalIds.has(sig.id)}
-                                        onChange={(e) => {
-                                          setSelectedSignalIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (e.target.checked)
-                                              next.add(sig.id);
-                                            else next.delete(sig.id);
-                                            return next;
-                                          });
-                                        }}
-                                      />
-                                      <CheckSquare className="h-3.5 w-3.5 text-slate-400" />
-                                      Select
-                                    </label>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() =>
-                                        void openQuickSimFromSignal(sig)
-                                      }
-                                    >
-                                      <Plus className="h-4 w-4" />
-                                      Simulate
-                                    </Button>
-                                  </div>
-                                  <div className="overflow-hidden rounded-lg">
-                                    <SignalCard
-                                      signal={{
-                                        market: sig.marketQuestion,
-                                        probability:
-                                          marketProbabilityById[sig.marketId] ??
-                                          0,
-                                        signal: sig.signalType,
-                                        confidence: sig.confidence,
-                                        reasoning: sig.reasoning,
-                                        action: sig.action,
-                                        timestamp: sig.createdAt,
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
+                          <div className="flex items-center gap-3 min-w-0">
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-medium text-slate-100 truncate">
+                                {run.strategyName}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {new Date(run.createdAt).toLocaleString()} •{" "}
+                                {run.signalCount} signal
+                                {run.signalCount !== 1 ? "s" : ""}
+                              </p>
                             </div>
-                          ) : (
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead className="w-12" />
-                                  <TableHead>Market</TableHead>
-                                  <TableHead className="w-28">Signal</TableHead>
-                                  <TableHead className="w-20">Action</TableHead>
-                                  <TableHead className="w-24 text-right">
-                                    Confidence
-                                  </TableHead>
-                                  <TableHead className="w-24 text-right">
-                                    Probability
-                                  </TableHead>
-                                  <TableHead className="w-28" />
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                              statusColor[run.status] ??
+                              "text-slate-300 bg-slate-700"
+                            }`}
+                          >
+                            {run.status}
+                          </span>
+                        </button>
+
+                        {/* Expanded signals */}
+                        {isExpanded && (
+                          <div className="px-6 pb-4">
+                            {runSignalsCache[run.id] === undefined ? (
+                              <p className="text-sm text-slate-400">
+                                Loading signals…
+                              </p>
+                            ) : filteredSignals.length === 0 ? (
+                              <p className="text-sm text-slate-400">
+                                No signals
+                                {q.length > 0 ? " match your search" : ""}.
+                              </p>
+                            ) : signalViewMode === "cards" ? (
+                              <div className="grid gap-4 sm:grid-cols-2">
                                 {filteredSignals.map((sig) => (
-                                  <TableRow key={sig.id}>
-                                    <TableCell>
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedSignalIds.has(sig.id)}
-                                        onChange={(e) => {
-                                          setSelectedSignalIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (e.target.checked)
-                                              next.add(sig.id);
-                                            else next.delete(sig.id);
-                                            return next;
-                                          });
-                                        }}
-                                      />
-                                    </TableCell>
-                                    <TableCell className="max-w-md">
-                                      <p className="truncate text-sm text-slate-200">
-                                        {sig.marketQuestion}
-                                      </p>
-                                    </TableCell>
-                                    <TableCell className="text-xs text-slate-300">
-                                      {sig.signalType}
-                                    </TableCell>
-                                    <TableCell className="text-xs text-slate-300">
-                                      {sig.action === "BUY"
-                                        ? "BUY YES"
-                                        : sig.action === "SELL"
-                                          ? "BUY NO"
-                                          : "MONITOR"}
-                                    </TableCell>
-                                    <TableCell className="text-right text-xs text-slate-300">
-                                      {(sig.confidence * 100).toFixed(0)}%
-                                    </TableCell>
-                                    <TableCell className="text-right text-xs text-slate-300">
-                                      {(
-                                        (marketProbabilityById[sig.marketId] ??
-                                          0) * 100
-                                      ).toFixed(2)}
-                                      %
-                                    </TableCell>
-                                    <TableCell>
+                                  <div
+                                    key={sig.id}
+                                    className="space-y-3 rounded-xl border border-slate-800/60 bg-slate-950/20 p-3"
+                                  >
+                                    <div className="flex items-center justify-between gap-2 px-1">
+                                      <label className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedSignalIds.has(
+                                            sig.id,
+                                          )}
+                                          onChange={(e) => {
+                                            setSelectedSignalIds((prev) => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked)
+                                                next.add(sig.id);
+                                              else next.delete(sig.id);
+                                              return next;
+                                            });
+                                          }}
+                                        />
+                                        <CheckSquare className="h-3.5 w-3.5 text-slate-400" />
+                                        Select
+                                      </label>
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -1307,46 +1695,221 @@ export default function DashboardPage() {
                                         <Plus className="h-4 w-4" />
                                         Simulate
                                       </Button>
-                                    </TableCell>
-                                  </TableRow>
+                                    </div>
+                                    <div className="overflow-hidden rounded-lg">
+                                      <SignalCard
+                                        signal={{
+                                          market: sig.marketQuestion,
+                                          marketId: sig.marketId,
+                                          conditionId:
+                                            marketById[sig.marketId]
+                                              ?.conditionId,
+                                          probability:
+                                            marketProbabilityById[
+                                              sig.marketId
+                                            ] ?? 0,
+                                          signal: sig.signalType,
+                                          confidence: sig.confidence,
+                                          reasoning: sig.reasoning,
+                                          fairPrice: sig.fairPrice,
+                                          reasoningSections:
+                                            sig.reasoningSections,
+                                          action: sig.action,
+                                          timestamp: sig.createdAt,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
                                 ))}
-                              </TableBody>
-                            </Table>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
-            </CardContent>
-          </Card>
+                              </div>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="w-12" />
+                                    <TableHead>Market</TableHead>
+                                    <TableHead className="w-28">
+                                      Signal
+                                    </TableHead>
+                                    <TableHead className="w-20">
+                                      Action
+                                    </TableHead>
+                                    <TableHead className="w-28">
+                                      Value
+                                    </TableHead>
+                                    <TableHead className="w-24 text-right">
+                                      Confidence
+                                    </TableHead>
+                                    <TableHead className="w-24 text-right">
+                                      Probability
+                                    </TableHead>
+                                    <TableHead className="w-28" />
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {filteredSignals.map((sig) => (
+                                    <TableRow key={sig.id}>
+                                      <TableCell>
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedSignalIds.has(
+                                            sig.id,
+                                          )}
+                                          onChange={(e) => {
+                                            setSelectedSignalIds((prev) => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked)
+                                                next.add(sig.id);
+                                              else next.delete(sig.id);
+                                              return next;
+                                            });
+                                          }}
+                                        />
+                                      </TableCell>
+                                      <TableCell className="max-w-md">
+                                        <p className="truncate text-sm text-slate-200">
+                                          {sig.marketQuestion}
+                                        </p>
+                                      </TableCell>
+                                      <TableCell className="text-xs text-slate-300">
+                                        {sig.signalType}
+                                      </TableCell>
+                                      <TableCell className="text-xs text-slate-300">
+                                        {sig.action === "BUY"
+                                          ? "BUY YES"
+                                          : sig.action === "SELL"
+                                            ? "BUY NO"
+                                            : "MONITOR"}
+                                      </TableCell>
+                                      <TableCell className="text-xs">
+                                        {Number.isFinite(sig.fairPrice) ? (
+                                          (() => {
+                                            const current =
+                                              marketProbabilityById[
+                                                sig.marketId
+                                              ] ?? 0;
+                                            const gap =
+                                              (sig.fairPrice ?? 0) - current;
+                                            if (gap >= 0.03)
+                                              return (
+                                                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-300">
+                                                  UNDERVALUED
+                                                </span>
+                                              );
+                                            if (gap <= -0.03)
+                                              return (
+                                                <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-rose-300">
+                                                  OVERVALUED
+                                                </span>
+                                              );
+                                            return (
+                                              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-slate-300">
+                                                NEAR FAIR
+                                              </span>
+                                            );
+                                          })()
+                                        ) : (
+                                          <span className="text-slate-500">
+                                            n/a
+                                          </span>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right text-xs text-slate-300">
+                                        {(sig.confidence * 100).toFixed(0)}%
+                                      </TableCell>
+                                      <TableCell className="text-right text-xs text-slate-300">
+                                        {(
+                                          (marketProbabilityById[
+                                            sig.marketId
+                                          ] ?? 0) * 100
+                                        ).toFixed(2)}
+                                        %
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              void openQuickSimFromSignal(sig)
+                                            }
+                                          >
+                                            <Plus className="h-4 w-4" />
+                                            Simulate
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={
+                                              !marketById[sig.marketId]
+                                                ?.conditionId
+                                            }
+                                            onClick={() => {
+                                              const outcome =
+                                                sig.action === "BUY"
+                                                  ? "yes"
+                                                  : sig.action === "SELL"
+                                                    ? "no"
+                                                    : undefined;
+                                              const marketQuestion =
+                                                marketById[sig.marketId]
+                                                  ?.question ??
+                                                sig.marketQuestion;
+                                              const base = `https://polymarket.com/search?q=${encodeURIComponent(marketQuestion)}`;
+                                              const url = outcome
+                                                ? `${base}&outcome=${outcome}`
+                                                : base;
+                                              window.open(
+                                                url,
+                                                "_blank",
+                                                "noopener,noreferrer",
+                                              );
+                                            }}
+                                          >
+                                            Execute
+                                          </Button>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity Log</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {activity.length === 0 ? (
-                <p className="text-sm text-slate-400">No activity yet.</p>
-              ) : (
-                <ul className="space-y-3 text-sm">
-                  {activity.map((item) => (
-                    <li
-                      key={item.id}
-                      className="border-b border-slate-800 pb-2"
-                    >
-                      <p className="text-slate-300">{item.message}</p>
-                      <p className="text-xs text-slate-500">
-                        {new Date(item.timestamp).toLocaleTimeString()}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </section>
+            <Card>
+              <CardHeader>
+                <CardTitle>Activity Log</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {activity.length === 0 ? (
+                  <p className="text-sm text-slate-400">No activity yet.</p>
+                ) : (
+                  <ul className="space-y-3 text-sm">
+                    {activity.map((item) => (
+                      <li
+                        key={item.id}
+                        className="border-b border-slate-800 pb-2"
+                      >
+                        <p className="text-slate-300">{item.message}</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(item.timestamp).toLocaleTimeString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+        ) : null}
       </main>
 
       <MarketDetailModal
@@ -1354,11 +1917,26 @@ export default function DashboardPage() {
         latestSignal={latestForDetail}
         open={marketDetailsOpen}
         onClose={() => setMarketDetailsOpen(false)}
+        onRunAnalysis={() => void handleRunMarketAnalysis()}
+        onSimulate={() => void handleSimulateFromDetail()}
+        runExecuting={runExecuting}
+        strategies={strategies}
+        selectedStrategyId={selectedStrategyId}
+        recentAnalyses={recentAnalysesForDetail}
+        simulations={simulationsForDetail}
+        onDeleteSimulation={handleDeleteSimulationFromDetail}
+        onStrategyChange={(value) => {
+          if (value === ADD_NEW_STRATEGY_VALUE) {
+            openStrategyModal();
+            return;
+          }
+          setSelectedStrategyId(value);
+        }}
       />
 
       {searchModalOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+          <div className="w-full max-w-5xl rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
             <h2 className="text-lg font-semibold text-slate-100">
               Search Polymarket Markets
             </h2>
@@ -1571,34 +2149,38 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {quickSimSignals.length === 1 && (() => {
-                const market = marketById[quickSimSignals[0].marketId];
-                const outcomes = market?.outcomes ?? [];
-                const prices = market?.outcomePrices ?? [];
-                if (outcomes.length < 2 || prices.length < 2) return null;
-                return (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Outcome Side
-                    </label>
-                    <Select
-                      value={quickSimOutcomeIndex}
-                      onValueChange={setQuickSimOutcomeIndex}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {outcomes.map((label, idx) => (
-                          <SelectItem key={`${label}-${idx}`} value={String(idx)}>
-                            {label} ({((prices[idx] ?? 0) * 100).toFixed(2)}%)
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                );
-              })()}
+              {quickSimSignals.length === 1 &&
+                (() => {
+                  const market = marketById[quickSimSignals[0].marketId];
+                  const outcomes = market?.outcomes ?? [];
+                  const prices = market?.outcomePrices ?? [];
+                  if (outcomes.length < 2 || prices.length < 2) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Outcome Side
+                      </label>
+                      <Select
+                        value={quickSimOutcomeIndex}
+                        onValueChange={setQuickSimOutcomeIndex}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {outcomes.map((label, idx) => (
+                            <SelectItem
+                              key={`${label}-${idx}`}
+                              value={String(idx)}
+                            >
+                              {label} ({((prices[idx] ?? 0) * 100).toFixed(2)}%)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })()}
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -1721,6 +2303,36 @@ export default function DashboardPage() {
                   }
                   className="h-9 w-28 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-400/70"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Analyst Persona
+                </label>
+                <Select
+                  value={strategyDraft.persona}
+                  onValueChange={(value) =>
+                    setStrategyDraft((p) => ({
+                      ...p,
+                      persona: value as AnalystPersona,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-60">
+                    <SelectValue placeholder="Select persona" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BALANCED">Balanced</SelectItem>
+                    <SelectItem value="CONTRARIAN">The Contrarian</SelectItem>
+                    <SelectItem value="QUANT">The Quant</SelectItem>
+                    <SelectItem value="NEWS_JUNKIE">The News Junkie</SelectItem>
+                  </SelectContent>
+                </Select>
+                {strategyDraft.persona ? (
+                  <p className="text-xs leading-5 text-slate-400">
+                    {PERSONA_DESCRIPTIONS[strategyDraft.persona]}
+                  </p>
+                ) : null}
               </div>
             </div>
 

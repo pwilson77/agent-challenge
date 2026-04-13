@@ -5,7 +5,14 @@ import {
   DEFAULT_STRATEGY_NAME,
   ensureDefaultStrategy,
 } from "@/lib/strategy-runner";
-import type { Strategy } from "@/lib/types";
+import type { AnalystPersona, Strategy } from "@/lib/types";
+
+const PERSONAS: AnalystPersona[] = [
+  "BALANCED",
+  "CONTRARIAN",
+  "QUANT",
+  "NEWS_JUNKIE",
+];
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +23,7 @@ export async function POST(req: Request) {
       description?: string;
       promptTemplate?: string;
       batchSize?: number;
+      persona?: AnalystPersona;
     };
 
     if (!body.name?.trim()) {
@@ -31,10 +39,15 @@ export async function POST(req: Request) {
       );
     }
 
+    const persona = PERSONAS.includes(body.persona ?? "BALANCED")
+      ? (body.persona ?? "BALANCED")
+      : "BALANCED";
+
     const strategy = await prisma.strategy.create({
       data: {
         name: body.name.trim(),
         description: body.description?.trim() ?? null,
+        persona,
         promptTemplate: body.promptTemplate.trim(),
         batchSize: body.batchSize ?? 4,
       },
@@ -45,6 +58,7 @@ export async function POST(req: Request) {
       name: strategy.name,
       description: strategy.description,
       isDefault: false,
+      persona: (strategy.persona as AnalystPersona | null) ?? "BALANCED",
       promptTemplate: strategy.promptTemplate,
       batchSize: strategy.batchSize,
       active: strategy.active,
@@ -84,6 +98,7 @@ export async function GET() {
       name: s.name,
       description: s.description,
       isDefault: s.name === DEFAULT_STRATEGY_NAME,
+      persona: (s.persona as AnalystPersona | null) ?? "BALANCED",
       promptTemplate: s.promptTemplate,
       batchSize: s.batchSize,
       active: s.active,

@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_STRATEGY_NAME } from "@/lib/strategy-runner";
-import type { Strategy } from "@/lib/types";
+import type { AnalystPersona, Strategy } from "@/lib/types";
+
+const PERSONAS: AnalystPersona[] = [
+  "BALANCED",
+  "CONTRARIAN",
+  "QUANT",
+  "NEWS_JUNKIE",
+];
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +24,7 @@ export async function PUT(
       description?: string;
       promptTemplate?: string;
       batchSize?: number;
+      persona?: AnalystPersona;
     };
 
     const existing = await prisma.strategy.findUnique({ where: { id } });
@@ -40,6 +48,16 @@ export async function PUT(
       );
     }
 
+    if (
+      body.persona !== undefined &&
+      !PERSONAS.includes(body.persona as AnalystPersona)
+    ) {
+      return NextResponse.json(
+        { message: "persona is invalid" },
+        { status: 400 },
+      );
+    }
+
     const updated = await prisma.strategy.update({
       where: { id },
       data: {
@@ -51,6 +69,7 @@ export async function PUT(
           promptTemplate: body.promptTemplate.trim(),
         }),
         ...(body.batchSize !== undefined && { batchSize: body.batchSize }),
+        ...(body.persona !== undefined && { persona: body.persona }),
       },
     });
 
@@ -59,6 +78,7 @@ export async function PUT(
       name: updated.name,
       description: updated.description,
       isDefault: updated.name === DEFAULT_STRATEGY_NAME,
+      persona: (updated.persona as AnalystPersona | null) ?? "BALANCED",
       promptTemplate: updated.promptTemplate,
       batchSize: updated.batchSize,
       active: updated.active,

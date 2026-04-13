@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
       : limit;
 
     const hasSearch = search.trim().length > 0;
+    const withSignals = req.nextUrl.searchParams.get("withSignals") === "true";
     const requested = Math.max(limit, page * pageSize);
 
     const searchResult = hasSearch
@@ -35,8 +36,20 @@ export async function GET(req: NextRequest) {
         })
       : null;
 
-    const { markets, source: fetchSource } =
+    const { markets: rawMarkets, source: fetchSource } =
       searchResult ?? (await fetchMarkets(Math.min(requested, 100), search));
+
+    // When the filter is active, restrict to markets that have at least one
+    // persisted signal (any historical run), keeping pagination accurate.
+    let markets = rawMarkets;
+    if (withSignals) {
+      const rows = await prisma.signal.findMany({
+        select: { marketId: true },
+        distinct: ["marketId"],
+      });
+      const signalIds = new Set(rows.map((r) => r.marketId));
+      markets = rawMarkets.filter((m) => signalIds.has(m.id));
+    }
 
     const start = (page - 1) * pageSize;
     const pagedMarkets = markets.slice(start, start + pageSize);

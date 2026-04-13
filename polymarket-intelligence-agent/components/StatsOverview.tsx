@@ -29,48 +29,53 @@ export function StatsOverview({ signals, marketCount }: StatsOverviewProps) {
   ).length;
 
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <Card>
-        <CardHeader>
+    <section
+      className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+      aria-label="Live Signal Summary"
+    >
+      <Card className="flex min-h-44 flex-col">
+        <CardHeader className="items-center pb-2 text-center">
           <CardTitle className="text-sm text-slate-400">
             Tracked Markets
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-1 items-center justify-center text-center">
           <p className="text-3xl font-bold text-slate-100">{marketCount}</p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="flex min-h-44 flex-col">
+        <CardHeader className="items-center pb-2 text-center">
           <CardTitle className="text-sm text-slate-400">
             Signals Generated
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-1 items-center justify-center text-center">
           <p className="text-3xl font-bold text-slate-100">{signals.length}</p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="flex min-h-44 flex-col">
+        <CardHeader className="items-center pb-2 text-center">
           <CardTitle className="text-sm text-slate-400">Actions</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          <p className="text-emerald-300">BUY: {buyCount}</p>
-          <p className="text-rose-300">SELL: {sellCount}</p>
-          <p className="text-amber-300">MONITOR: {monitorCount}</p>
+        <CardContent className="flex flex-1 items-center justify-center text-center">
+          <div className="space-y-1 text-sm">
+            <p className="text-emerald-300">BUY: {buyCount}</p>
+            <p className="text-rose-300">SELL: {sellCount}</p>
+            <p className="text-amber-300">MONITOR: {monitorCount}</p>
+          </div>
         </CardContent>
       </Card>
 
-      <Card className="min-w-0">
-        <CardHeader>
+      <Card className="flex min-h-44 min-w-0 flex-col">
+        <CardHeader className="items-center pb-2 text-center">
           <CardTitle className="text-sm text-slate-400">
             Avg Confidence
           </CardTitle>
         </CardHeader>
-        <CardContent className="h-32 min-w-0">
-          <div className="h-full w-full min-w-0">
+        <CardContent className="flex flex-1 items-center justify-center min-w-0">
+          <div className="h-32 w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
                 innerRadius="55%"

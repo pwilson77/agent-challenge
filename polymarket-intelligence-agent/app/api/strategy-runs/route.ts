@@ -12,6 +12,9 @@ export const dynamic = "force-dynamic";
 const CreateRunSchema = z.object({
   strategyId: z.string().min(1),
   marketIds: z.array(z.string().min(1)).min(1),
+  persona: z
+    .enum(["BALANCED", "CONTRARIAN", "QUANT", "NEWS_JUNKIE"])
+    .optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
     const run = await runStrategyOnMarkets({
       strategyId: parsed.data.strategyId,
       marketIds: parsed.data.marketIds,
+      personaOverride: parsed.data.persona,
       abortSignal: req.signal,
     });
 

@@ -23,16 +23,20 @@ model Market {
 }
 
 model Signal {
-  id         String   @id @default(cuid())
-  marketId   String
-  market     Market   @relation(fields: [marketId], references: [id])
-  runId      String?
-  run        StrategyRun? @relation(fields: [runId], references: [id])
-  signalType String
-  confidence Float
-  reasoning  String
-  action     String
-  createdAt  DateTime @default(now())
+  id                String       @id @default(cuid())
+  marketId          String
+  market            Market       @relation(fields: [marketId], references: [id])
+  runId             String?
+  run               StrategyRun? @relation(fields: [runId], references: [id])
+  signalType        String
+  confidence        Float
+  reasoning         String
+  fairPrice         Float?
+  marketContext     String?
+  sentimentAnalysis String?
+  finalVerdict      String?
+  action            String
+  createdAt         DateTime     @default(now())
 
   @@index([runId])
   @@index([marketId, createdAt])
@@ -56,6 +60,7 @@ model Strategy {
   id                String        @id @default(cuid())
   name              String        @unique
   description       String?
+  persona           String?       @default("BALANCED")
   promptTemplate    String
   batchSize         Int           @default(4)
   active            Boolean       @default(true)

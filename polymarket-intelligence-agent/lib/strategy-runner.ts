@@ -44,6 +44,7 @@ export async function ensureDefaultStrategy() {
     update: {
       active: true,
       batchSize: 4,
+      persona: "BALANCED",
       description: "Baseline strategy using Eliza market analysis prompt",
       promptTemplate:
         "Analyze each market and return JSON signals with confidence, reasoning, and action.",
@@ -52,6 +53,7 @@ export async function ensureDefaultStrategy() {
       name: DEFAULT_STRATEGY_NAME,
       active: true,
       batchSize: 4,
+      persona: "BALANCED",
       scheduleEnabled: false,
       description: "Baseline strategy using Eliza market analysis prompt",
       promptTemplate:
@@ -63,9 +65,10 @@ export async function ensureDefaultStrategy() {
 export async function runStrategyOnMarkets(params: {
   strategyId: string;
   marketIds: string[];
+  personaOverride?: "BALANCED" | "CONTRARIAN" | "QUANT" | "NEWS_JUNKIE";
   abortSignal?: AbortSignal;
 }): Promise<StrategyRun> {
-  const { strategyId, marketIds, abortSignal } = params;
+  const { strategyId, marketIds, personaOverride, abortSignal } = params;
   const uniqueMarketIds = Array.from(new Set(marketIds));
   if (uniqueMarketIds.length === 0) {
     throw new Error("At least one market must be selected");
@@ -100,6 +103,15 @@ export async function runStrategyOnMarkets(params: {
 
   const started = Date.now();
   let persistedSignals = 0;
+  const activePersona =
+    personaOverride ??
+    (strategy.persona as
+      | "BALANCED"
+      | "CONTRARIAN"
+      | "QUANT"
+      | "NEWS_JUNKIE"
+      | null) ??
+    "BALANCED";
 
   try {
     await analyzeMarketsWithElizaChannelBatched(
@@ -115,6 +127,7 @@ export async function runStrategyOnMarkets(params: {
         batchSize: strategy.batchSize,
         abortSignal,
         strategyPrompt: strategy.promptTemplate,
+        persona: activePersona,
         onBatchComplete: async (batchSignals, batchIndex) => {
           await prisma.$transaction(
             batchSignals.map((signal) => {
@@ -135,6 +148,11 @@ export async function runStrategyOnMarkets(params: {
                   signalType: signal.signal,
                   confidence: signal.confidence,
                   reasoning: signal.reasoning,
+                  fairPrice: signal.fairPrice,
+                  marketContext: signal.reasoningSections?.marketContext,
+                  sentimentAnalysis:
+                    signal.reasoningSections?.sentimentAnalysis,
+                  finalVerdict: signal.reasoningSections?.finalVerdict,
                   action: signal.action,
                 },
               });
@@ -221,6 +239,15 @@ export async function getStrategyRun(runId: string) {
         | "BREAKING_NEWS",
       confidence: s.confidence,
       reasoning: s.reasoning,
+      fairPrice: s.fairPrice ?? undefined,
+      reasoningSections:
+        s.marketContext || s.sentimentAnalysis || s.finalVerdict
+          ? {
+              marketContext: s.marketContext ?? "",
+              sentimentAnalysis: s.sentimentAnalysis ?? "",
+              finalVerdict: s.finalVerdict ?? s.reasoning,
+            }
+          : undefined,
       action: s.action as "BUY" | "SELL" | "MONITOR",
       createdAt: s.createdAt.toISOString(),
     })),

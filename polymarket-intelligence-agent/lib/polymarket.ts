@@ -97,9 +97,7 @@ function normalizeMarket(raw: z.infer<typeof RawMarketSchema>): Market {
       }
       return [value].map((v) => v.trim()).filter((v) => v.length > 0);
     }
-    return value
-      .map((v) => String(v).trim())
-      .filter((v) => v.length > 0);
+    return value.map((v) => String(v).trim()).filter((v) => v.length > 0);
   };
 
   // outcomePrices may be a JSON-encoded string (real Gamma API) or an actual array

@@ -45,7 +45,9 @@ export async function GET(
         value: true,
         pnl: true,
         takenAt: true,
-        position: { select: { marketQuestion: true, action: true } },
+        position: {
+          select: { marketQuestion: true, action: true, marketId: true },
+        },
       },
     });
 
@@ -87,6 +89,7 @@ export async function GET(
           id: s.id,
           positionId: s.positionId,
           sessionId: s.sessionId,
+          marketId: s.position.marketId,
           marketQuestion: s.position.marketQuestion,
           action: s.position.action,
           probability: s.probability,
@@ -142,6 +145,38 @@ export async function PATCH(
         updatedAt: session.updatedAt.toISOString(),
       },
     });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 },
+    );
+  }
+}
+
+// ── DELETE /api/simulations/[id] — delete session and related records ───────
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+    const existing = await prisma.simulationSession.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.simulationSnapshot.deleteMany({ where: { sessionId: id } });
+      await tx.simulationPosition.deleteMany({ where: { sessionId: id } });
+      await tx.simulationSession.delete({ where: { id } });
+    });
+
+    return NextResponse.json({ ok: true, id });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unknown error" },

@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { ElizaClient } from "@elizaos/api-client";
 import { z } from "zod";
 
-import type { Market, Signal } from "@/lib/types";
+import type {
+  AnalystPersona,
+  Market,
+  Signal,
+  SignalReasoningSections,
+} from "@/lib/types";
 import { clamp, randomFloat } from "@/lib/utils";
 
 // --------------------------------------------------------------------------
@@ -12,7 +17,15 @@ import { clamp, randomFloat } from "@/lib/utils";
 const ElizaResponseSchema = z.object({
   signal: z.enum(["MISPRICED", "MOMENTUM", "ARBITRAGE", "BREAKING_NEWS"]),
   confidence: z.coerce.number(),
-  reasoning: z.string(),
+  reasoning: z.union([
+    z.string(),
+    z.object({
+      marketContext: z.string(),
+      sentimentAnalysis: z.string(),
+      finalVerdict: z.string(),
+    }),
+  ]),
+  fairPrice: z.coerce.number().optional(),
   action: z.enum(["BUY", "SELL", "MONITOR"]),
   // SSE responses include the originating market context
   market: z.string().optional(),
@@ -26,7 +39,15 @@ const ElizaSignalListSchema = z.object({
       probability: z.coerce.number(),
       signal: z.enum(["MISPRICED", "MOMENTUM", "ARBITRAGE", "BREAKING_NEWS"]),
       confidence: z.coerce.number(),
-      reasoning: z.string(),
+      reasoning: z.union([
+        z.string(),
+        z.object({
+          marketContext: z.string(),
+          sentimentAnalysis: z.string(),
+          finalVerdict: z.string(),
+        }),
+      ]),
+      fairPrice: z.coerce.number().optional(),
       action: z.enum(["BUY", "SELL", "MONITOR"]),
     }),
   ),
@@ -45,17 +66,24 @@ export function buildMockSignal(market: Market): Signal {
 
   let signal: Signal["signal"] = "MOMENTUM";
   let action: Signal["action"] = "MONITOR";
+  let fairPrice = clamp(
+    market.probability + randomFloat(-0.08, 0.08),
+    0.01,
+    0.99,
+  );
   let reasoning =
     "Order flow and implied probability are balanced; monitor for a catalyst.";
 
   if (market.probability < 0.35 && confidence > 0.7) {
     signal = "MISPRICED";
     action = "BUY";
+    fairPrice = clamp(market.probability + randomFloat(0.06, 0.16), 0.01, 0.99);
     reasoning =
       "The market appears to underprice this outcome relative to recent information velocity.";
   } else if (market.probability > 0.72 && confidence > 0.68) {
     signal = "MOMENTUM";
     action = "SELL";
+    fairPrice = clamp(market.probability - randomFloat(0.05, 0.13), 0.01, 0.99);
     reasoning =
       "Price has stretched after momentum acceleration, increasing mean reversion risk.";
   } else if (market.volume > 4_000_000 && confidence > 0.66) {
@@ -71,8 +99,73 @@ export function buildMockSignal(market: Market): Signal {
     signal,
     confidence,
     reasoning,
+    fairPrice,
+    reasoningSections: {
+      marketContext: `Market probability ${market.probability.toFixed(2)} with volume ${Math.round(market.volume).toLocaleString()}.`,
+      sentimentAnalysis:
+        signal === "MOMENTUM"
+          ? "Momentum appears extended and may mean-revert soon."
+          : signal === "MISPRICED"
+            ? "Recent context implies higher probability than current pricing."
+            : "Sentiment is mixed and no directional edge dominates yet.",
+      finalVerdict: reasoning,
+    },
     action,
     timestamp: new Date().toISOString(),
+  };
+}
+
+function personaInstruction(persona?: AnalystPersona): string {
+  switch (persona) {
+    case "CONTRARIAN":
+      return "Persona: The Contrarian. Look for weak assumptions in crowded YES trades and highlight robust NO-side logic when justified.";
+    case "QUANT":
+      return "Persona: The Quant. Prioritize liquidity, volume shifts, and probability dislocations over narrative.";
+    case "NEWS_JUNKIE":
+      return "Persona: The News Junkie. Weight recent headlines, sentiment velocity, and narrative regime shifts.";
+    default:
+      return "Persona: Balanced analyst. Combine fundamentals, flow, and sentiment without overfitting to one style.";
+  }
+}
+
+function reasoningToText(reasoning: string | SignalReasoningSections): string {
+  if (typeof reasoning === "string") return reasoning;
+  return [
+    `Market Context: ${reasoning.marketContext}`,
+    `Sentiment Analysis: ${reasoning.sentimentAnalysis}`,
+    `Final Verdict: ${reasoning.finalVerdict}`,
+  ].join("\n");
+}
+
+function reasoningToSections(
+  reasoning: string | SignalReasoningSections,
+): SignalReasoningSections | undefined {
+  if (typeof reasoning !== "string") return reasoning;
+  const lines = reasoning
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) return undefined;
+  const marketContext =
+    lines.find((l) => l.toLowerCase().startsWith("market context:")) ??
+    lines[0] ??
+    "";
+  const sentimentAnalysis =
+    lines.find((l) => l.toLowerCase().startsWith("sentiment analysis:")) ??
+    lines[1] ??
+    lines[0] ??
+    "";
+  const finalVerdict =
+    lines.find((l) => l.toLowerCase().startsWith("final verdict:")) ??
+    lines.at(-1) ??
+    "";
+  return {
+    marketContext: marketContext.replace(/^market context:\s*/i, ""),
+    sentimentAnalysis: sentimentAnalysis.replace(
+      /^sentiment analysis:\s*/i,
+      "",
+    ),
+    finalVerdict: finalVerdict.replace(/^final verdict:\s*/i, ""),
   };
 }
 
@@ -111,12 +204,13 @@ async function isElizaReachable(): Promise<boolean> {
 export async function analyzeWithOpenRouter(
   markets: Market[],
   strategyPrompt?: string,
+  persona?: AnalystPersona,
 ): Promise<Signal[]> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
 
   const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-3-haiku";
-  const prompt = buildAnalysisPrompt(markets, strategyPrompt);
+  const prompt = buildAnalysisPrompt(markets, strategyPrompt, persona);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30_000);
@@ -228,6 +322,7 @@ async function getOrCreateAnalysisChannel(
 function buildAnalysisPrompt(
   markets: Market[],
   strategyPrompt?: string,
+  persona?: AnalystPersona,
 ): string {
   const compactMarkets = markets.map((m) => ({
     market: m.question,
@@ -237,13 +332,15 @@ function buildAnalysisPrompt(
 
   return [
     "You are a market analysis agent.",
+    personaInstruction(persona),
     strategyPrompt?.trim() ||
       "Use robust probabilistic reasoning and current market context.",
     "Analyze each market and return STRICT JSON only with this exact shape:",
-    '{"signals":[{"market":"string","probability":0.0,"signal":"MISPRICED|MOMENTUM|ARBITRAGE|BREAKING_NEWS","confidence":0.0,"reasoning":"string","action":"BUY|SELL|MONITOR"}]}',
+    '{"signals":[{"market":"string","probability":0.0,"fairPrice":0.0,"signal":"MISPRICED|MOMENTUM|ARBITRAGE|BREAKING_NEWS","confidence":0.0,"reasoning":{"marketContext":"string","sentimentAnalysis":"string","finalVerdict":"string"},"action":"BUY|SELL|MONITOR"}]}',
     "Rules:",
     "- Return one signal per input market.",
     "- confidence must be between 0 and 1.",
+    "- fairPrice must be between 0 and 1.",
     "- No markdown, no prose, no code fences.",
     "Input markets:",
     JSON.stringify(compactMarkets),
@@ -273,6 +370,7 @@ function parseSignalsFromAgent(rawText: string, markets: Market[]): Signal[] {
 
   return parsed.data.signals.map((s, idx) => {
     const fallback = markets[idx] ?? markets[0];
+    const reasoningSections = reasoningToSections(s.reasoning);
     return {
       market: s.market || fallback?.question || "",
       probability: Number.isFinite(s.probability)
@@ -280,7 +378,11 @@ function parseSignalsFromAgent(rawText: string, markets: Market[]): Signal[] {
         : (fallback?.probability ?? 0),
       signal: s.signal,
       confidence: clamp(s.confidence, 0, 1),
-      reasoning: s.reasoning,
+      fairPrice: Number.isFinite(s.fairPrice)
+        ? clamp(Number(s.fairPrice), 0, 1)
+        : undefined,
+      reasoningSections,
+      reasoning: reasoningToText(s.reasoning),
       action: s.action,
       timestamp: new Date().toISOString(),
     };
@@ -393,6 +495,7 @@ export async function analyzeMarketsWithElizaChannel(
   markets: Market[],
   abortSignal?: AbortSignal,
   strategyPrompt?: string,
+  persona?: AnalystPersona,
 ): Promise<Signal[]> {
   // Try the Eliza channel when the agent process is reachable.
   if (await isElizaReachable()) {
@@ -409,7 +512,7 @@ export async function analyzeMarketsWithElizaChannel(
         baseUrl,
         channel.id,
         userId,
-        buildAnalysisPrompt(markets, strategyPrompt),
+        buildAnalysisPrompt(markets, strategyPrompt, persona),
       );
 
       return await waitForChannelReply(
@@ -430,7 +533,7 @@ export async function analyzeMarketsWithElizaChannel(
 
   // Fallback: call OpenRouter directly if a key is configured.
   if (process.env.OPENROUTER_API_KEY) {
-    return analyzeWithOpenRouter(markets, strategyPrompt);
+    return analyzeWithOpenRouter(markets, strategyPrompt, persona);
   }
 
   // No fallback available — return mock signals.
@@ -452,6 +555,7 @@ export async function analyzeMarketsWithElizaChannelBatched(
     batchSize?: number;
     abortSignal?: AbortSignal;
     strategyPrompt?: string;
+    persona?: AnalystPersona;
     onBatchComplete?: (
       batchSignals: Signal[],
       batchIndex: number,
@@ -471,6 +575,7 @@ export async function analyzeMarketsWithElizaChannelBatched(
       batches[i],
       options?.abortSignal,
       options?.strategyPrompt,
+      options?.persona,
     );
     mergedSignals.push(...batchSignals);
     options?.onBatchComplete?.(batchSignals, i, batches.length);
@@ -525,12 +630,17 @@ export async function streamElizaSignals(
     JSON.parse(extractJsonCandidate(raw)) as unknown,
   );
   if (parsed.success) {
+    const reasoningSections = reasoningToSections(parsed.data.reasoning);
     onSignal({
       market: parsed.data.market ?? "",
       probability: parsed.data.probability ?? 0,
       signal: parsed.data.signal,
       confidence: clamp(parsed.data.confidence, 0, 1),
-      reasoning: parsed.data.reasoning,
+      fairPrice: Number.isFinite(parsed.data.fairPrice)
+        ? clamp(Number(parsed.data.fairPrice), 0, 1)
+        : undefined,
+      reasoningSections,
+      reasoning: reasoningToText(parsed.data.reasoning),
       action: parsed.data.action,
       timestamp: new Date().toISOString(),
     });

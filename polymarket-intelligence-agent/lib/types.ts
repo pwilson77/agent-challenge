@@ -1,5 +1,7 @@
 export interface Market {
   id: string;
+  venue?: MarketVenue;
+  externalId?: string;
   conditionId?: string;
   clobTokenId?: string;
   outcomes?: string[];
@@ -14,13 +16,29 @@ export interface Market {
 
 export interface Signal {
   market: string;
+  marketId?: string;
+  conditionId?: string;
   probability: number;
   signal: "MISPRICED" | "MOMENTUM" | "ARBITRAGE" | "BREAKING_NEWS";
   confidence: number;
   reasoning: string;
+  fairPrice?: number;
+  reasoningSections?: SignalReasoningSections;
   action: "BUY" | "SELL" | "MONITOR";
   timestamp: string;
 }
+
+export interface SignalReasoningSections {
+  marketContext: string;
+  sentimentAnalysis: string;
+  finalVerdict: string;
+}
+
+export type AnalystPersona =
+  | "BALANCED"
+  | "CONTRARIAN"
+  | "QUANT"
+  | "NEWS_JUNKIE";
 
 export interface PaginationMeta {
   page: number;
@@ -38,6 +56,27 @@ export interface MarketsResponse {
   pagination?: PaginationMeta;
 }
 
+export type MarketVenue = "polymarket" | "kalshi";
+
+export interface MarketComparison {
+  id: string;
+  question: string;
+  polymarket: Market;
+  kalshi: Market;
+  probabilityGap: number;
+  absoluteGap: number;
+  recommendation: "BUY_POLYMARKET_YES" | "BUY_KALSHI_YES";
+  thresholdHit: boolean;
+  similarityScore: number;
+}
+
+export interface MarketComparisonResponse {
+  opportunities: MarketComparison[];
+  updatedAt: string;
+  threshold: number;
+  source: "polymarket+jupiter-kalshi" | "mock";
+}
+
 export interface SignalsResponse {
   signals: Signal[];
   updatedAt: string;
@@ -49,6 +88,7 @@ export interface Strategy {
   name: string;
   description?: string | null;
   isDefault?: boolean;
+  persona?: AnalystPersona;
   promptTemplate: string;
   batchSize: number;
   active: boolean;
@@ -65,6 +105,8 @@ export interface PersistedSignal {
   signalType: Signal["signal"];
   confidence: number;
   reasoning: string;
+  fairPrice?: number;
+  reasoningSections?: SignalReasoningSections;
   action: Signal["action"];
   createdAt: string;
 }
@@ -103,6 +145,8 @@ export interface SimulationSession {
   /** Aggregate across all open positions — only present on list responses */
   totalPnl?: number;
   positionCount?: number;
+  /** Distinct market ids included in this session's positions */
+  marketIds?: string[];
 }
 
 export interface SimulationPosition {

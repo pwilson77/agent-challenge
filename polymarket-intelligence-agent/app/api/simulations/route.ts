@@ -28,10 +28,23 @@ export async function GET() {
       select: { sessionId: true, positionId: true, pnl: true },
     });
 
+    const allPositions = await prisma.simulationPosition.findMany({
+      where: { sessionId: { in: sessionIds } },
+      select: { sessionId: true, marketId: true },
+    });
+
     const pnlBySession: Record<string, number> = {};
     for (const snap of latestSnapshots) {
       pnlBySession[snap.sessionId] =
         (pnlBySession[snap.sessionId] ?? 0) + snap.pnl;
+    }
+
+    const marketIdsBySession: Record<string, Set<string>> = {};
+    for (const pos of allPositions) {
+      if (!marketIdsBySession[pos.sessionId]) {
+        marketIdsBySession[pos.sessionId] = new Set<string>();
+      }
+      marketIdsBySession[pos.sessionId].add(pos.marketId);
     }
 
     const result = sessions.map((s) => ({
@@ -46,6 +59,7 @@ export async function GET() {
       updatedAt: s.updatedAt.toISOString(),
       positionCount: s.positions.length,
       totalPnl: pnlBySession[s.id] ?? 0,
+      marketIds: Array.from(marketIdsBySession[s.id] ?? []),
     }));
 
     return NextResponse.json({ sessions: result });

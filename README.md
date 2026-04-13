@@ -1,210 +1,195 @@
-# Agent Challenge — Polymarket Intelligence System
+# Polymarket Intelligence Agent
 
-A Nosana × ElizaOS challenge submission built around a production-quality Polymarket analysis pipeline. This monorepo contains two deployable components: an ElizaOS AI agent and a Next.js Polymarket intelligence dashboard.
+Polymarket Intelligence Agent is a Next.js application for exploring live Polymarket markets, selecting the markets that matter, and running persisted AI analysis strategies against them. It is built as a Superteam submission and packaged to run cleanly inside Docker for Nosana-style deployments.
 
-> **Challenge**: [Nosana × ElizaOS Agent Challenge](https://luma.com/calendar/cal-RF19mq3EtF4juLc) — win a share of **$3,000 USDC**.
+## What the app does
 
----
+- Pulls live market data from the Polymarket Gamma API.
+- Stores synced markets, strategy definitions, runs, and generated signals in SQLite via Prisma.
+- Lets users select markets across filtered views and run a strategy on the selected set.
+- Persists the full reasoning, action, confidence, and run metadata for later review.
+- Shows market details, liquidity, and the most recent stored analysis in the dashboard.
+- Falls back to deterministic mock analysis when the upstream AI service is unavailable.
 
-## Repository Layout
+## Features
 
+- Signal Alpha Engine: Flags mispriced outcomes by comparing AI fair value against live market price.
+- Deep Reasoning Logs: Persists structured reasoning sections (market context, sentiment analysis, final verdict) for auditability.
+- Multi-Agent Personas: Toggle between Contrarian, Quant, News Junkie, and Balanced analyst modes.
+- Nosana-Ready Architecture: Built for low-latency inference with resilient fallback handling when upstream inference is unavailable.
+
+## Core workflow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Next.js Dashboard
+    participant Markets as Markets API
+    participant Strategies as Strategies API
+    participant Runs as Strategy Runs API
+    participant Runner as Strategy Runner
+    participant Eliza as Eliza Agent
+    participant DB as SQLite via Prisma
+
+    User->>UI: Open dashboard
+    UI->>Markets: GET /api/markets
+    Markets->>DB: Upsert market snapshot
+    DB-->>Markets: Stored markets
+    Markets-->>UI: Paginated market data
+    UI->>Strategies: GET /api/strategies
+    Strategies->>DB: Ensure default strategy
+    DB-->>Strategies: Active strategies
+    Strategies-->>UI: Strategy list
+    User->>UI: Select markets and run strategy
+    UI->>Runs: POST /api/strategy-runs
+    Runs->>Runner: Execute selected strategy
+    Runner->>Eliza: Analyze market batches
+    Eliza-->>Runner: Signals with reasoning
+    Runner->>DB: Persist run + signals
+    DB-->>Runner: Stored results
+    Runner-->>Runs: Completed run summary
+    Runs-->>UI: Run id and status
+    UI->>Runs: GET /api/strategy-runs/:id
+    Runs->>DB: Load stored signals
+    DB-->>Runs: Run details
+    Runs-->>UI: Persisted analysis results
 ```
-agent/                              # ElizaOS agent (challenge submission core)
-│   README.md                       # Agent setup, challenge brief, Nosana deployment
-│   package.json
-│   characters/
-│   src/
-polymarket-intelligence-agent/      # Next.js dashboard + strategy execution + simulation
-│   README.md                       # App setup, architecture, API reference, Docker notes
-│   app/
-│   lib/
-│   components/
-│   prisma/
-docker/
-│   start-combined.sh               # Supervisor: runs agent + dashboard + LLM proxy together
-│   llm-proxy.mjs                   # Nosana → OpenRouter fallback proxy
-Dockerfile                          # Agent-only container (for Nosana deployment)
-Dockerfile.fullstack                # Combined agent + dashboard container
+
+## Stack
+
+- Next.js App Router with React and TypeScript
+- Prisma ORM with SQLite persistence
+- ElizaOS API client for strategy execution
+- Tailwind CSS and custom UI primitives
+- Recharts for dashboard analytics
+- Zod for input validation
+
+## Environment
+
+Copy `.env.example` to `.env` for local development.
+
+```env
+DATABASE_URL=file:./prisma/dev.db
+ELIZA_AGENT_URL=http://localhost:3001
+NEXT_PUBLIC_APP_NAME=Polymarket Intelligence Agent
+POLYMARKET_MOCK_MODE=false
 ```
 
----
+Notes:
 
-## Prerequisites
+- `DATABASE_URL` uses SQLite. Local development defaults to a file inside `prisma/`.
+- Docker defaults to `file:/app/data/polymarket.db` so the database can live on a mounted volume.
+- `POLYMARKET_MOCK_MODE=true` forces mock market and signal behavior for offline demos.
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Node.js | 23+ | Runtime for both components |
-| pnpm | latest | Agent dependency management |
-| npm | bundled with Node | Dashboard dependency management |
-| Docker | latest | Container builds and fullstack runs |
-| Git | any | Version control |
+## Local setup
 
----
-
-## Setup Instructions
-
-### 1 — ElizaOS Agent
+1. Install dependencies.
 
 ```bash
-cd agent
-cp .env.example .env           # Fill in Nosana endpoint and model settings
-pnpm install
-pnpm dev                       # Starts agent on http://localhost:3001
-```
-
-See [agent/README.md](agent/README.md) for full challenge brief, LLM configuration, and Nosana deployment steps.
-
-### 2 — Polymarket Dashboard
-
-```bash
-cd polymarket-intelligence-agent
-cp .env.example .env           # Set DATABASE_URL, ELIZA_AGENT_URL, etc.
 npm install
-npm run prisma:generate        # Generate Prisma client
-npm run prisma:migrate         # Apply DB migrations (creates dev.db)
-npm run prisma:seed            # Seed default strategy and starter markets
-npm run dev                    # Starts dashboard on http://localhost:3000
 ```
 
-See [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) for full environment reference and production setup.
-
----
-
-## Usage Guidelines
-
-### Run agent only
+2. Generate the Prisma client.
 
 ```bash
-cd agent && pnpm dev
+npm run prisma:generate
 ```
 
-Exposes the ElizaOS agent API on `http://localhost:3001`. Useful for standalone agent development.
-
-### Run dashboard only
+3. Apply the local migration history.
 
 ```bash
-cd polymarket-intelligence-agent && npm run dev
+npm run prisma:migrate -- --name init
 ```
 
-Dashboard connects to the agent at `ELIZA_AGENT_URL` (defaults to `http://localhost:3001`). If the agent is offline, the app falls back to OpenRouter (if `OPENROUTER_API_KEY` is set) or mock analysis.
-
-### Run both locally (two terminals)
+4. Seed the local database with starter markets and the default strategy.
 
 ```bash
-# Terminal 1
-cd agent && pnpm dev
-
-# Terminal 2
-cd polymarket-intelligence-agent && npm run dev
+npm run prisma:seed
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the dashboard.
-
-### Run combined production container
+5. Start the development server.
 
 ```bash
-# Build
-docker build -f Dockerfile.fullstack -t agent-challenge-fullstack .
+npm run dev
+```
 
-# Run
+6. Open `http://localhost:3000`.
+
+## How to use the app
+
+1. Open the dashboard and let the market sync finish.
+2. Search or page through Polymarket markets.
+3. Select one or more markets from the table.
+4. Switch to the Strategies tab and choose a strategy.
+5. Run the strategy on the selected markets.
+6. Review stored signals, confidence, reasoning, and run history.
+7. Click a market row to inspect liquidity, expiry, and the latest persisted summary.
+
+## Docker deployment
+
+The production container now does three things on startup:
+
+1. Ensures the SQLite directory exists.
+2. Runs `prisma migrate deploy`.
+3. Starts the Next.js server on `0.0.0.0:3000`.
+
+Build the image:
+
+```bash
+docker build -t polymarket-intelligence-agent .
+```
+
+Run the container directly:
+
+```bash
 docker run --rm \
   -p 3000:3000 \
-  -v agent_challenge_data:/app/data \
-  -e OPENAI_BASE_URL="https://your-nosana-endpoint/v1" \
-  -e OPENAI_API_KEY="nosana" \
-  agent-challenge-fullstack
+  -e ELIZA_AGENT_URL=http://host.docker.internal:3001 \
+  -e DATABASE_URL=file:/app/data/polymarket.db \
+  -v polymarket_data:/app/data \
+  polymarket-intelligence-agent
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The agent runs internally on port 3001 and the LLM proxy on port 4000 — only port 3000 (dashboard) is exposed.
-
-### Key dashboard workflow
-
-1. Open dashboard → markets load automatically from Polymarket.
-2. Search for a specific market using the search bar (powered by Polymarket's public-search API).
-3. Select one or more markets from the table.
-4. Choose a strategy from the Strategies card.
-5. Click **Analyze** to run the AI strategy on selected markets.
-6. Review generated signals (BUY YES / BUY NO / MONITOR) with confidence scores and reasoning.
-7. Click **Simulate** on any signal to open a paper-trading simulation.
-8. Choose an outcome side (YES/NO) and bet size, then add the position to a simulation session.
-
----
-
-## Environment Variables
-
-Each component has its own `.env.example` — use those files as the authoritative reference. Common variables:
-
-| Variable | Component | Purpose |
-|----------|-----------|---------|
-| `OPENAI_BASE_URL` | Agent | Nosana or compatible inference endpoint |
-| `OPENAI_API_KEY` | Agent | API key (`nosana` for Nosana endpoint) |
-| `OPENAI_LARGE_MODEL` | Agent | Model name for large tasks |
-| `OPENAI_SMALL_MODEL` | Agent | Model name for small tasks |
-| `ELIZA_AGENT_URL` | Dashboard | URL of the running ElizaOS agent |
-| `DATABASE_URL` | Dashboard | SQLite path (e.g. `file:./prisma/dev.db`) |
-| `OPENROUTER_API_KEY` | Dashboard | Optional fallback when Nosana is unreachable |
-| `POLYMARKET_MOCK_MODE` | Dashboard | Set `true` to use mock data for offline demos |
-
----
-
-## Code Quality
-
-### Comments
-
-- **Explain intent, not mechanics** — comment _why_ a decision was made, not what the line does if it is already obvious.
-- **Document edge cases** — mark fallback paths, error handling assumptions, and API quirks with brief inline notes.
-- **Keep comments current** — a stale comment is worse than no comment; update comments whenever behaviour changes.
-- **Avoid noise** — do not add comments that restate what the code already clearly expresses.
-- **Mark non-obvious integrations** — when calling an external API with specific parameter semantics (e.g. Polymarket `public-search` vs `markets` endpoint), note the reason at the call site.
-
-### TypeScript
-
-- Prefer explicit types for API responses and shared data structures (see `lib/types.ts`).
-- Use Zod schemas for runtime validation of external API payloads (see `lib/polymarket.ts`).
-- Avoid `any` except where a third-party type boundary genuinely requires it.
-
-### API Routes
-
-- All routes live in `app/api/` and follow Next.js App Router conventions.
-- Each route validates its inputs before executing business logic.
-- Error responses include a human-readable `error` or `message` field.
-
----
-
-## Deployment
-
-### Agent on Nosana
-
-See [agent/README.md](agent/README.md) for step-by-step Nosana deployment. Key steps:
-1. Build and push the Docker image to Docker Hub.
-2. Claim Nosana builders credits at [nosana.com/builders-credits](https://nosana.com/builders-credits).
-3. Submit the job using the Nosana CLI.
-
-### Dashboard on any host
-
-Build and run the standalone dashboard container:
+Run with Docker Compose:
 
 ```bash
-docker build -f polymarket-intelligence-agent/Dockerfile \
-  -t polymarket-dashboard \
-  polymarket-intelligence-agent/
-
-docker run --rm -p 3000:3000 \
-  -v dashboard_data:/app/data \
-  -e ELIZA_AGENT_URL="https://your-agent-url" \
-  polymarket-dashboard
+docker compose up --build
 ```
 
----
+Compose uses a named volume for SQLite persistence and maps `host.docker.internal` so the container can reach an Eliza service running on the host.
 
-## Documentation Map
+## Nosana deployment notes
 
-| Topic | Location |
-|-------|---------|
-| Challenge overview and prizes | [agent/README.md](agent/README.md) |
-| Nosana deployment walkthrough | [agent/README.md](agent/README.md) |
-| App architecture and sequence diagram | [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) |
-| Full environment variable reference | [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) |
-| Docker Compose usage | [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) |
-| Prisma schema and DB operations | [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) |
-| Production build commands | [polymarket-intelligence-agent/README.md](polymarket-intelligence-agent/README.md) |
+For Nosana, use the Docker image produced from this repository as the job container that serves the Next.js app. The important runtime settings are:
+
+- Expose port `3000`.
+- Set `ELIZA_AGENT_URL` to the reachable Eliza endpoint for the job.
+- Keep `DATABASE_URL=file:/app/data/polymarket.db` or another writable SQLite path.
+- Mount a writable volume to `/app/data` if the job runtime supports persistence.
+
+If the job environment is ephemeral, the app still works, but strategy runs and market history will be lost between executions.
+
+## Production commands
+
+```bash
+npm run build
+npm run lint
+npm run prisma:migrate:deploy
+npm run start
+```
+
+## Repository highlights
+
+- `app/dashboard/page.tsx`: dashboard, selection flow, and strategy execution UX.
+- `app/api/markets/route.ts`: Polymarket sync plus DB upsert.
+- `app/api/strategies/route.ts`: active strategies, including the default strategy.
+- `app/api/strategy-runs/route.ts`: run execution and history listing.
+- `lib/strategy-runner.ts`: strategy orchestration and signal persistence.
+- `prisma/schema.prisma`: SQLite schema for markets, signals, strategies, and runs.
+
+## Operational notes
+
+- The app stores strategy results in SQLite, not just in memory.
+- The default strategy is created automatically if it does not already exist.
+- If Eliza is unavailable, mock analysis keeps the UI functional for demos and testing.
+- Strategy scheduling fields exist in the data model, but automatic scheduled execution is not implemented yet.
