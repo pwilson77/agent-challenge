@@ -15,13 +15,18 @@
  */
 
 import http from "node:http";
+import fs from "node:fs";
 
 const PORT = parseInt(process.env.LLM_PROXY_PORT ?? "4000", 10);
 const NOSANA_BASE = (process.env.NOSANA_OPENAI_BASE_URL ?? "").replace(
   /\/$/,
   "",
 );
-const OR_KEY = process.env.OPENROUTER_API_KEY ?? "";
+const OR_KEY =
+  process.env.OPENROUTER_API_KEY ??
+  (fs.existsSync("/app/.openrouter_key")
+    ? fs.readFileSync("/app/.openrouter_key", "utf8").trim()
+    : "");
 const OR_BASE = "https://openrouter.ai/api/v1";
 const OR_MODEL =
   process.env.OPENROUTER_FALLBACK_MODEL ?? "anthropic/claude-3-haiku";

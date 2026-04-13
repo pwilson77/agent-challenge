@@ -75,36 +75,13 @@ jobs:
           file: ./Dockerfile.fullstack
           push: true
           tags: ${{ steps.prep.outputs.tags }}
+          build-args: |
+            OPENAI_BASE_URL=https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1
+            OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8
+            OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
+            MODEL_NAME=Qwen3.5-9B-FP8
+            OPENROUTER_FALLBACK_MODEL=${{ github.event.inputs.fallback_model || 'anthropic/claude-3-haiku' }}
+          secrets: |
+            openrouter_key=${{ secrets.OPENROUTER_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Render deploy-ready Nosana job file
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_FALLBACK_MODEL: ${{ github.event.inputs.fallback_model || 'anthropic/claude-3-haiku' }}
-          IMAGE_REF: pwilson99/nosana-eliza-agent:${{ github.sha }}
-        run: |
-          mkdir -p dist
-
-          if [[ -n "${OPENROUTER_API_KEY}" ]]; then
-            jq \
-              --arg key "${OPENROUTER_API_KEY}" \
-              --arg model "${OPENROUTER_FALLBACK_MODEL}" \
-              --arg image "${IMAGE_REF}" \
-              '.ops[0].args.image = $image | .ops[0].args.env.OPENROUTER_API_KEY = $key | .ops[0].args.env.OPENROUTER_FALLBACK_MODEL = $model' \
-              nos_job_def/nosana_fullstack_job_definition.json \
-              > dist/nosana_fullstack_job_definition.rendered.json
-          else
-            jq \
-              --arg image "${IMAGE_REF}" \
-              '.ops[0].args.image = $image' \
-              nos_job_def/nosana_fullstack_job_definition.json \
-              > dist/nosana_fullstack_job_definition.rendered.json
-            echo "OPENROUTER_API_KEY not set; rendered job excludes OpenRouter fallback key."
-          fi
-
-      - name: Upload rendered Nosana job artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nosana-fullstack-job-definition
-          path: dist/nosana_fullstack_job_definition.rendered.json

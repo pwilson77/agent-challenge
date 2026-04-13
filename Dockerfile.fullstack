@@ -24,6 +24,19 @@ ENV ELIZA_SERVER_PORT=3001
 ENV ELIZA_AGENT_URL=http://127.0.0.1:3001
 ENV DATABASE_URL=file:/app/data/polymarket.db
 
+# Build-time injected runtime defaults (used when deployment only pulls image).
+ARG OPENAI_BASE_URL=https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1
+ARG OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8
+ARG OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
+ARG MODEL_NAME=Qwen3.5-9B-FP8
+ARG OPENROUTER_FALLBACK_MODEL=anthropic/claude-3-haiku
+
+ENV OPENAI_BASE_URL=${OPENAI_BASE_URL}
+ENV OPENAI_SMALL_MODEL=${OPENAI_SMALL_MODEL}
+ENV OPENAI_LARGE_MODEL=${OPENAI_LARGE_MODEL}
+ENV MODEL_NAME=${MODEL_NAME}
+ENV OPENROUTER_FALLBACK_MODEL=${OPENROUTER_FALLBACK_MODEL}
+
 RUN npm install -g pnpm
 
 WORKDIR /app
@@ -47,6 +60,12 @@ RUN cd /app/frontend && npx prisma generate && npm run build
 COPY docker/start-combined.sh /app/docker/start-combined.sh
 COPY docker/llm-proxy.mjs /app/docker/llm-proxy.mjs
 RUN chmod +x /app/docker/start-combined.sh && mkdir -p /app/data
+
+# Persist OpenRouter secret from BuildKit secret mount for pull-only runtimes.
+RUN --mount=type=secret,id=openrouter_key \
+  if [ -f /run/secrets/openrouter_key ]; then \
+    cp /run/secrets/openrouter_key /app/.openrouter_key && chmod 600 /app/.openrouter_key; \
+  fi
 
 ENV NODE_ENV=production
 
