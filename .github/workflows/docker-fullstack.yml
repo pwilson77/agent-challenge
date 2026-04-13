@@ -76,11 +76,12 @@ jobs:
           push: true
           tags: ${{ steps.prep.outputs.tags }}
           build-args: |
+            OPENAI_API_KEY=nosana
             OPENAI_BASE_URL=https://5i8frj7ann99bbw9gzpprvzj2esugg39hxbb4unypskq.node.k8s.prd.nos.ci/v1
             OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8
             OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
             MODEL_NAME=Qwen3.5-9B-FP8
-            OPENROUTER_FALLBACK_MODEL=${{ github.event.inputs.fallback_model || 'anthropic/claude-3-haiku' }}
+            OPENROUTER_FALLBACK_MODEL=${{ github.event.inputs.fallback_model || 'deepseek/deepseek-chat' }}
           secrets: |
             openrouter_key=${{ secrets.OPENROUTER_API_KEY }}
           cache-from: type=gha
