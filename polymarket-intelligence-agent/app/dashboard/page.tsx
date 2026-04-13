@@ -101,6 +101,8 @@ const DEFAULT_SIM_DRAFT: SimCreateDraft = {
   intervalMin: 60,
 };
 
+const ADD_NEW_SIMULATION_VALUE = "__add_new_simulation__";
+
 function personaLabel(persona: AnalystPersona | undefined): string {
   if (persona === "CONTRARIAN") return "The Contrarian";
   if (persona === "QUANT") return "The Quant";
@@ -484,6 +486,15 @@ export default function DashboardPage() {
     setQuickSimOutcomeIndex("0");
     setQuickSimOpen(true);
   }, [refreshMarketsIfStale, selectedSignals, simulations]);
+
+  const openCreateSimulationFromQuickSim = useCallback(() => {
+    setQuickSimOpen(false);
+    setSimCreateOpen(true);
+    setSimCreateDraft((prev) => ({
+      ...prev,
+      name: quickSimSignals[0]?.marketQuestion.slice(0, 48) ?? prev.name,
+    }));
+  }, [quickSimSignals]);
 
   const addSignalToSimulation = useCallback(async () => {
     if (quickSimSignals.length === 0 || !quickSimSessionId) {
@@ -2086,12 +2097,21 @@ export default function DashboardPage() {
                 </label>
                 <Select
                   value={quickSimSessionId}
-                  onValueChange={setQuickSimSessionId}
+                  onValueChange={(value) => {
+                    if (value === ADD_NEW_SIMULATION_VALUE) {
+                      openCreateSimulationFromQuickSim();
+                      return;
+                    }
+                    setQuickSimSessionId(value);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select simulation" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={ADD_NEW_SIMULATION_VALUE}>
+                      + Add new simulation
+                    </SelectItem>
                     {simulations
                       .filter((s) => s.status !== "stopped")
                       .map((s) => (
@@ -2109,16 +2129,7 @@ export default function DashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => {
-                        setQuickSimOpen(false);
-                        setSimCreateOpen(true);
-                        setSimCreateDraft((prev) => ({
-                          ...prev,
-                          name:
-                            quickSimSignals[0]?.marketQuestion.slice(0, 48) ??
-                            prev.name,
-                        }));
-                      }}
+                      onClick={openCreateSimulationFromQuickSim}
                     >
                       <Plus className="h-4 w-4" />
                       Create Simulation
