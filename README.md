@@ -169,6 +169,17 @@ For Nosana, use the Docker image produced from this repository as the job contai
 
 If the job environment is ephemeral, the app still works, but strategy runs and market history will be lost between executions.
 
+### OpenRouter key in production without committing secrets
+
+Use the existing build-and-publish workflow at `.github/workflows/docker-fullstack.yml` to render a deploy-ready Nosana job artifact during the same run.
+
+1. Add repository secret `OPENROUTER_API_KEY` in GitHub.
+2. Run the `Build and Push Docker Image` workflow from the Actions tab (or push to `main`).
+3. Optionally set `fallback_model` (default: `anthropic/claude-3-haiku`).
+4. Download the artifact `nosana-fullstack-job-definition` and submit that rendered JSON to Nosana.
+
+This keeps `OPENROUTER_API_KEY` out of committed `.env` files and repository history.
+
 ## Production commands
 
 ```bash
