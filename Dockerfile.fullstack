@@ -30,6 +30,7 @@ ARG OPENAI_SMALL_MODEL=Qwen3.5-9B-FP8
 ARG OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
 ARG MODEL_NAME=Qwen3.5-9B-FP8
 ARG OPENROUTER_FALLBACK_MODEL=anthropic/claude-3-haiku
+ARG EMBED_DEMO_DB=true
 
 ENV OPENAI_BASE_URL=${OPENAI_BASE_URL}
 ENV OPENAI_SMALL_MODEL=${OPENAI_SMALL_MODEL}
@@ -60,6 +61,11 @@ RUN cd /app/frontend && npx prisma generate && npm run build
 COPY docker/start-combined.sh /app/docker/start-combined.sh
 COPY docker/llm-proxy.mjs /app/docker/llm-proxy.mjs
 RUN chmod +x /app/docker/start-combined.sh && mkdir -p /app/data
+
+# Optional demo snapshot: bake local SQLite into image for pull-only deployments.
+RUN if [ "$EMBED_DEMO_DB" = "true" ] && [ -f /app/frontend/prisma/prisma/dev.db ]; then \
+      cp /app/frontend/prisma/prisma/dev.db /app/data/polymarket.db; \
+    fi
 
 # Persist OpenRouter secret from BuildKit secret mount for pull-only runtimes.
 RUN --mount=type=secret,id=openrouter_key \

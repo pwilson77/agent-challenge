@@ -28,6 +28,11 @@ on:
         required: false
         default: "anthropic/claude-3-haiku"
         type: string
+      embed_demo_db:
+        description: "Embed local SQLite snapshot (prisma/prisma/dev.db) into image"
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build-and-push:
@@ -82,6 +87,7 @@ jobs:
             OPENAI_LARGE_MODEL=Qwen3.5-9B-FP8
             MODEL_NAME=Qwen3.5-9B-FP8
             OPENROUTER_FALLBACK_MODEL=${{ github.event.inputs.fallback_model || 'deepseek/deepseek-chat' }}
+            EMBED_DEMO_DB=${{ github.event.inputs.embed_demo_db || 'true' }}
           secrets: |
             openrouter_key=${{ secrets.OPENROUTER_API_KEY }}
           cache-from: type=gha

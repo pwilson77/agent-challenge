@@ -169,6 +169,16 @@ For Nosana, use the Docker image produced from this repository as the job contai
 
 If the job environment is ephemeral, the app still works, but strategy runs and market history will be lost between executions.
 
+### Demo persistence via baked SQLite snapshot
+
+For demo-only deployments that always pull `latest`, the build workflow can embed `polymarket-intelligence-agent/prisma/prisma/dev.db` into the image.
+
+1. Keep your desired demo data in `polymarket-intelligence-agent/prisma/prisma/dev.db`.
+2. Run `Build and Push Docker Image` with `embed_demo_db=true` (default).
+3. Deploy by pulling `pwilson99/nosana-eliza-agent:latest`.
+
+This gives each fresh deployment the same starting demo dataset. Runtime changes are still ephemeral unless a writable volume is mounted.
+
 ### OpenRouter key in production without committing secrets
 
 Use the existing build-and-publish workflow at `.github/workflows/docker-fullstack.yml` to inject the OpenRouter key at image build time via a BuildKit secret.
