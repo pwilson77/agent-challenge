@@ -2,6 +2,17 @@
 
 Polymarket Intelligence Agent is a Next.js application for exploring live Polymarket markets, selecting the markets that matter, and running persisted AI analysis strategies against them. It is built as a Superteam submission and packaged to run cleanly inside Docker for Nosana-style deployments.
 
+## Live deployment and demo video
+
+- Live deployment: https://64w2vw3qyjwhetznmtpki4d4zrmtidf4psbvfhk7lhpo.node.k8s.prd.nos.ci/
+- Demo video: https://youtu.be/dfP_Mlik4Ss
+
+<a href="https://youtu.be/dfP_Mlik4Ss" target="_blank" rel="noopener noreferrer">
+  <img src="https://img.youtube.com/vi/dfP_Mlik4Ss/hqdefault.jpg" alt="Watch demo video" width="720" />
+</a>
+
+Click the thumbnail above to play the video on YouTube.
+
 ## What the app does
 
 - Pulls live market data from the Polymarket Gamma API.
